@@ -153,3 +153,52 @@ async def test_search_works_from_inside_a_plan():
     r = await run_plan(plan, Catalog(VIEWER, retriever=FakeRetriever()))
     assert r.ok, r.error
     assert r.result == ["RB-003#actions"] and r.catalog_usage["search"] == 1
+
+
+# ---------- memory: single-step blow-ups are refused before they allocate ----------
+
+@pytest.mark.parametrize("code", [
+    'result = len("a" * 100000 * 100000)',                     # str * int
+    "result = len([0] * 100000 * 100000)",                     # list * int
+    'x = "a" * 1000\nx *= 100000\nresult = len(x)',           # *=
+    'x = "a" * 600000\nresult = len(x + x)',                  # str + str
+    'x = ["a" * 100000] * 50\nresult = len("".join(x))',      # join of repeated references
+    'x = "a" * 100000\nresult = len(x.replace("a", "b" * 1000))',  # replace amplification
+    "result = sum([[0] * 1000] * 2000, [])",                   # sum of lists
+    'result = len("x".ljust(100000 * 100000))',               # padding method
+    'result = f"{1:>100000000}"',                              # wide format spec
+    'w = 9\nresult = f"{1:{w}}"',                              # computed format spec
+    'result = "%100000000d" % 1',                              # printf width (literal)
+    'p = "%100000000d"\nresult = p % 1',                       # printf width (variable)
+    "result = 100000 * 100000 * 100000 * 100000",              # huge integers
+])
+async def test_memory_blowups_are_refused(catalog, code):
+    r = await run_plan(code, catalog)
+    assert not r.ok, code
+    assert any(w in r.error for w in ("max 1,000,000", "not allowed", "numbers only", "too large", "format")), r.error
+
+
+async def test_gradual_memory_growth_hits_the_memory_limit(catalog):
+    """list.extend doubles a list line by line – each step is small, so the per-process memory limit stops it."""
+    plan = "x = [0] * 100000\nfor i in range(40):\n    x.extend(x)\nresult = len(x)"
+    r = await run_plan(plan, catalog, max_memory_mb=64)
+    assert not r.ok and "memory limit" in r.error
+
+
+async def test_normal_string_and_list_work_still_runs(catalog):
+    plan = ('ids = [d["doc_id"] for d in list_docs(document_type="incident")]\n'
+            'label = ", ".join(ids[:3])\n'
+            'total = sum([1, 2, 3.5])\n'
+            'title = "Report: " + label.replace(",", ";")\n'
+            'counts = {}\nfor i in ids:\n    counts[i[:3]] = counts.get(i[:3], 0) + 1\n'
+            'result = {"title": title, "total": total, "pct": f"{total / 3:.1f}", "n": counts}')
+    r = await run_plan(plan, catalog)
+    assert r.ok, r.error
+    assert r.result["title"].startswith("Report: INC-") and r.result["pct"] == "2.2" and r.result["n"]["INC"] > 5
+
+
+async def test_bare_underscore_is_allowed_as_a_throwaway_name(catalog):
+    r = await run_plan("result = [0 for _ in range(3)]", catalog)
+    assert r.ok and r.result == [0, 0, 0]
+    r = await run_plan("__x = 1\nresult = __x", catalog)
+    assert not r.ok and "'_'" in r.error

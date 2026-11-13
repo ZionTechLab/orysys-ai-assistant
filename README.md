@@ -39,3 +39,25 @@ cp .env.example .env                              # fill in keys
 .venv/Scripts/streamlit run ui/streamlit_app.py --server.address 127.0.0.1  # UI on localhost:8501 only
 .venv/Scripts/pytest
 ```
+
+## Tests
+
+287 tests, no network needed (fake models, in-process MCP session, in-memory checkpointer):
+
+```bash
+.venv/Scripts/pytest                                                   # all tests
+.venv/Scripts/python -m coverage run --source=app,mcp_server -m pytest  # with coverage
+.venv/Scripts/python -m coverage report
+```
+
+Line coverage is 88% (13 Nov). The lower figures are network clients (`pinecone_store`, `sync`, `health`, LLM factory), which are exercised by the live runs recorded in the docs, and the sandbox: plans run under the sandbox's own trace function, which replaces the coverage tracer in that thread, so the size-check helpers are tested but not counted.
+
+| Area | Test files |
+|---|---|
+| Auth, RBAC, approval | `test_auth`, `test_tools_rbac`, `test_mcp` |
+| Rate limiting | `test_rate_limit` |
+| Prompt injection, validator, output guard | `test_guards`, `test_guard_validator`, `test_output_guard` |
+| Sandbox (escapes, budgets, memory) | `test_sandbox`, `test_analysis_tool` |
+| Hybrid scoring, filters, ingestion | `test_retrieval`, `test_loaders`, `test_sync`, `test_retrieval_resilience` |
+| Graph, RLM, memory | `test_graph`, `test_research`, `test_catalog`, `test_memory` |
+| API streaming, errors, fault injection | `test_chat_api`, `test_faults`, `test_logging` |

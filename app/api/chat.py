@@ -132,12 +132,12 @@ async def _stream_turn(request: Request, user: User, thread_id: str, graph_input
     values = (snapshot.values or {}) if snapshot else {}
     messages = values.get("messages", [])
     n_messages = len(messages)
-    summary = values.get("summary") or {}
+    memory = values.get("summary") or {}  # rolling conversation summary (not the turn `summary` above)
     if not streamed_tokens and messages and messages[-1].type == "ai":
         # Answers not produced by a streaming model call (guard refusal, fallback message) are sent whole.
         yield _sse("token", {"text": messages[-1].content})
     yield _sse("memory_update", {"event": "memory_update", "thread_id": thread_id, "messages": n_messages,
-                                 "summarized": summary.get("covered", 0), "summary_chars": len(summary.get("text", ""))})
+                                 "summarized": memory.get("covered", 0), "summary_chars": len(memory.get("text", ""))})
     yield _sse("done", {"thread_id": thread_id, "request_id": request_id, "run_id": str(run_id),
                         "status": "complete", **summary})
 
