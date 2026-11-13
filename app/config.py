@@ -53,8 +53,12 @@ class Settings(BaseSettings):
     langsmith_tracing: bool = True
 
     # Rate limiting
-    rate_limit_capacity: int = 10
-    rate_limit_refill_per_sec: float = 0.2
+    rate_limit_capacity: int = 10           # burst size per user
+    rate_limit_refill_per_sec: float = 0.2  # long-run rate per user (0.2/s = 12 requests per minute)
+    # Optional per-role thresholds, e.g. {"admin": {"capacity": 30, "refill_per_sec": 0.5}} (JSON in .env)
+    rate_limit_role_overrides: dict[str, dict[str, float]] = {}
+    login_rate_capacity: int = 5                # login attempts per username before slowing down
+    login_rate_refill_per_sec: float = 1 / 60   # then one attempt per minute
 
     # MCP
     mcp_server_url: str = "http://localhost:8765/mcp"

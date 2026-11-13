@@ -27,6 +27,7 @@ from app.graph.state import UserContext, new_turn_state
 from app.logging import bind_context, fingerprint, get_logger
 from app.memory.checkpointer import thread_key
 from app.security.auth import User, get_current_user
+from app.security.rate_limit import CHAT_LIMITER, enforce, limit_for_role
 from app.tools.registry import REGISTRY, ToolContext
 
 router = APIRouter(tags=["chat"])
@@ -43,6 +44,12 @@ class ChatRequest(BaseModel):
 class ResumeRequest(BaseModel):
     thread_id: str = Field(pattern=THREAD_ID_PATTERN)
     approved: bool
+
+
+async def rate_limited_user(user: User = Depends(get_current_user)) -> User:
+    """Authenticate, then take one token from the user's bucket – before any agent or LLM work."""
+    await enforce(CHAT_LIMITER, user.user_id, limit_for_role(user.role.value), scope="chat")
+    return user
 
 
 class ConflictError(AppError):
@@ -133,7 +140,7 @@ async def _stream_turn(request: Request, user: User, thread_id: str, graph_input
 
 
 @router.post("/chat")
-async def chat(request: Request, body: ChatRequest, user: User = Depends(get_current_user)) -> EventSourceResponse:
+async def chat(request: Request, body: ChatRequest, user: User = Depends(rate_limited_user)) -> EventSourceResponse:
     bind_context(thread_id=body.thread_id)
     log.info("chat_request", **fingerprint(body.message))
     if await _pending_approval(request.app.state.graph, user, body.thread_id):
@@ -142,7 +149,8 @@ async def chat(request: Request, body: ChatRequest, user: User = Depends(get_cur
 
 
 @router.post("/chat/resume")
-async def resume(request: Request, body: ResumeRequest, user: User = Depends(get_current_user)) -> EventSourceResponse:
+async def resume(request: Request, body: ResumeRequest,
+                 user: User = Depends(rate_limited_user)) -> EventSourceResponse:
     """Approve or reject the tool call the run is paused on, then continue streaming."""
     bind_context(thread_id=body.thread_id)
     pending = await _pending_approval(request.app.state.graph, user, body.thread_id)

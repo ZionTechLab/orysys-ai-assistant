@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.security.auth import User, authenticate, create_token, get_current_user
+from app.security.rate_limit import LOGIN_LIMITER, enforce, login_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -40,6 +41,8 @@ class LoginResponse(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest) -> LoginResponse:
+    # Per-username limit before the password check: slows down password guessing.
+    await enforce(LOGIN_LIMITER, body.username.lower(), login_limit(), scope="login")
     user = authenticate(body.username, body.password)
     token, expires_in = create_token(user)
     return LoginResponse(access_token=token, expires_in=expires_in, user=UserOut.from_user(user))
