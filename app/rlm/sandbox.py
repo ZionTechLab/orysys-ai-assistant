@@ -191,8 +191,11 @@ def _jsonable(value: Any) -> Any:
 
 
 async def run_plan(code: str, catalog: Catalog, max_seconds: float = MAX_SECONDS,
-                   max_lines: int = MAX_LINES_EXECUTED) -> SandboxResult:
-    """Validate and run a plan. Never raises for plan problems – returns ok=False with a fixable message."""
+                   max_lines: int = MAX_LINES_EXECUTED, extra_functions: dict | None = None) -> SandboxResult:
+    """Validate and run a plan. Never raises for plan problems – returns ok=False with a fixable message.
+
+    extra_functions: additional safe helpers (e.g. analysis functions); names must not start with "_".
+    """
     start = time.perf_counter()
     printed = io.StringIO()
 
@@ -206,6 +209,10 @@ async def run_plan(code: str, catalog: Catalog, max_seconds: float = MAX_SECONDS
         tree = validate(code)
         loop = asyncio.get_running_loop()
         namespace.update(_catalog_functions(catalog, loop))
+        for name, fn in (extra_functions or {}).items():
+            if name.startswith("_") or name in namespace:
+                raise ValueError(f"invalid extra function name: {name}")
+            namespace[name] = fn
         await asyncio.wait_for(asyncio.to_thread(_run_sync, tree, namespace, budget), timeout=max_seconds + 2)
         if "result" not in namespace:
             raise SandboxError("the plan must assign its output to a variable named `result`")

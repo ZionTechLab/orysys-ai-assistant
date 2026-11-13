@@ -215,7 +215,10 @@ async def _analyse_document(doc_id: str, task: dict, catalog: Catalog) -> dict:
             text = checked.text
             read.append({"chunk_id": _section_id(doc_id, section), "title": meta["title"], "section": section,
                          "date": meta["created_date"], "text": text})
-        blocks = "\n\n".join(f'<document id="{s["chunk_id"]}" title="{s["title"]}" date="{s["date"]}">\n'
+        # Metadata (department, type, severity) is not in the section text – give it to the analyst too.
+        attrs = (f'department="{meta["department"]}" type="{meta["document_type"]}" '
+                 f'severity="{meta.get("severity") or "n/a"}"')
+        blocks = "\n\n".join(f'<document id="{s["chunk_id"]}" title="{s["title"]}" date="{s["date"]}" {attrs}>\n'
                              f'{s["text"]}\n</document>' for s in read)
         reply = await get_llm("fast", long=True).ainvoke([
             SystemMessage(prompts.RESEARCH_WORKER.format(question=task["question"])),

@@ -18,13 +18,14 @@ Schema:
 }}
 
 Rules:
-- "research" when the answer needs analysis ACROSS MANY documents: summarise all / every X in a period,
-  find recurring or common causes, trends, patterns, counts, or compare several documents.
-- "retrieve" for any other question about the bank's systems, incidents, policies, runbooks, products or meetings
-  (a specific fact, one incident, how to do something).
-- "tool" when the user asks for an ACTION or system data rather than document knowledge: re-index / refresh the
+- "research" when the answer needs reading and comparing the CONTENT of many documents: summarise all / every X
+  in a period, find recurring or common root causes, themes or patterns, or compare several documents.
+- "tool" when the user asks for an ACTION, live system data, or a QUANTITATIVE analysis: re-index / refresh the
   documents, show the audit log, look up live data (employee directory, service catalog, incident records),
-  or run an analysis/calculation on data.
+  or numbers – how many, counts per department / type / severity / month, totals, averages, durations, statistics.
+- "retrieve" for any other question about the bank's systems, incidents, policies, runbooks, products or meetings
+  (a specific fact, one incident, how to do something) – and for requests for opinions or advice, which are
+  answered briefly from the documents, never researched.
 - "chitchat" only for greetings, thanks, or questions about what you can do.
 - Leave departments / document_types empty unless the user clearly limits the scope.
 - Dates: today is {{today}}. "last year" means the 12 months before today.
@@ -214,3 +215,27 @@ BRAND_REWRITE = BRAND_RULES + """
 Rewrite the answer below so it follows every rule. Keep all correct facts and every [citation] exactly as written.
 Remove only the parts that break a rule; where advice or opinion was asked for, say politely that you cannot give it
 and point to the right team. Reply with the rewritten answer only."""
+
+
+# ---------- python_analysis tool ----------
+
+ANALYSIS_CODER = """You write a short Python program that answers a quantitative question about a bank's internal
+documents. Available functions (nothing else; no imports, no def/class, no while loops):
+  describe() -> dict
+  list_docs(document_type=None, department=None, since=None, until=None, tag=None, title_contains=None)
+      -> list of {doc_id, title, document_type, department, created_date "YYYY-MM-DD", tags, severity, sections}
+      # document_type: incident, runbook, architecture, policy, product_spec, meeting_notes
+      # departments: payments, cards, core-banking, security, hr
+  read_section(doc_id, section) -> str     # e.g. read_section("INC-2026-007", "Impact")
+  count_by(items, key) -> {value: count}   # counts; list values (tags) count each element
+  mean(values), median(values)             # numbers
+  find_numbers(text) -> list of floats     # e.g. "~22,400 declined ... 47 minutes" -> [22400.0, 47.0]
+  Builtins: len, sorted, min, max, sum, round, set, list, dict, str, int, float, any, all, comprehensions,
+            lambda, f-strings, print.
+
+Rules:
+- Assign the answer to `result`: a small dict or list (numbers, ids, short strings) – never whole documents.
+- Include the doc_ids behind every number so the answer can cite them.
+- Use metadata where possible; read only the sections you need.
+
+Reply with ONLY the Python code in a ```python block."""

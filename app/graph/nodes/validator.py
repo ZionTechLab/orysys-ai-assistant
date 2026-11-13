@@ -89,7 +89,10 @@ async def validator(state: AgentState, runtime: Runtime[UserContext]) -> Command
     answer = last.content
     allowed = allowed_citations(state)
     problems = deterministic_problems(answer, route, allowed)
-    grounding = "skipped (deterministic checks failed)"
+    if route not in ("retrieve", "research"):
+        grounding = "not needed (tool result)"
+    elif problems:
+        grounding = "skipped (deterministic checks failed)"
     if not problems and route in ("retrieve", "research"):
         grounding, unsupported = await grounding_check(answer, state)
         if unsupported:
@@ -102,13 +105,17 @@ async def validator(state: AgentState, runtime: Runtime[UserContext]) -> Command
         return Command(goto="output_guard", update={"validation": result})
 
     if attempt < MAX_RETRIES:
-        result = {"ok": False, "action": "retry", "attempt": attempt + 1, "problems": problems, "grounding": grounding}
-        emit("validation", **result)
+        result = {"ok": False, "action": "retry", "attempt": attempt + 1, "problems": problems, "grounding": grounding,
+                  "previous_answer": answer}  # kept in case the rewrite comes back worse (e.g. empty)
+        emit("validation", **{k: v for k, v in result.items() if k != "previous_answer"})
         return Command(goto="response_agent", update={"validation": result})
 
-    # Last resort: remove citations that do not exist, keep the rest, and say so.
-    repaired = CITATION.sub(lambda m: m.group(0) if m.group(1) in allowed else "", answer)
-    if repaired != answer:
+    # Last resort: never end worse than the first attempt. If the rewrite is empty, use the first answer.
+    previous = (state.get("validation") or {}).get("previous_answer", "")
+    base = answer if len(answer.strip()) >= 15 or len(previous.strip()) < 15 else previous
+    # Remove citations that do not exist, keep the rest, and say so.
+    repaired = CITATION.sub(lambda m: m.group(0) if m.group(1) in allowed else "", base)
+    if repaired != base:
         repaired = re.sub(r"[ \t]{2,}", " ", repaired) + REPAIR_NOTE
     result = {"ok": False, "action": "repaired", "attempt": attempt, "problems": problems, "grounding": grounding}
     emit("validation", **result, answer=repaired)  # the UI replaces the streamed text with this

@@ -155,3 +155,12 @@ async def test_blocked_message_never_reaches_the_supervisor(monkeypatch):
     assert sup.calls == 0
     assert snap.values["messages"][-1].content == prompts.REFUSAL
     assert snap.values["guard"]["category"] == "data_exfiltration"
+
+
+async def test_empty_rewrite_falls_back_to_first_answer():
+    """Last resort must never end worse than the first attempt (seen live: the rewrite came back empty)."""
+    state = state_with("", attempt=1)
+    state["validation"]["previous_answer"] = "First answer [INC-1#root-cause] and [INC-9#made-up]."
+    cmd = await validator.validator(state, RUNTIME)
+    fixed = cmd.update["messages"][0].content
+    assert "First answer [INC-1#root-cause]" in fixed and "INC-9#made-up" not in fixed

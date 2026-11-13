@@ -22,7 +22,7 @@ from app.graph.nodes.common import node, parse_json
 from app.graph.state import AgentState, UserContext
 from app.llm import prompts
 from app.llm.factory import get_llm
-from app.tools import builtin  # noqa: F401 – registers the built-in tools
+from app.tools import analysis, builtin  # noqa: F401 – registers the tools
 from app.tools.registry import REGISTRY, ToolContext
 
 MAX_RESULT_CHARS = 8000
