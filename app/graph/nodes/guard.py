@@ -1,8 +1,10 @@
 """Input guard: first node of every turn.
 
-1. Rules (app/security/guards.py) – high-confidence attacks are blocked without any LLM call.
-2. LLM classifier (fast model) – only for messages with softer suspicious markers that no rule
-   matched, so normal questions do not pay the extra latency.
+1. Block rules (app/security/guards.py) – wording aimed at the assistant itself is blocked
+   without any LLM call.
+2. LLM classifier (fast model) – for messages a "refer" rule or a softer marker flagged: topics
+   that attacks and normal staff questions share ("skip approval", "debug mode"). Other
+   questions skip it and pay no extra latency.
 Blocked turns skip all agents and get a fixed, polite refusal (no LLM, nothing to manipulate).
 """
 
@@ -46,7 +48,7 @@ async def input_guard(state: AgentState, runtime: Runtime[UserContext]) -> dict:
             checked_by = f"rules (classifier unavailable: {type(exc).__name__})"
 
     guard = {"blocked": result.blocked, "category": result.category, "rule": result.rule,
-             "suspicious": result.suspicious, "checked_by": checked_by}
+             "suspicious": result.suspicious, "referred_by": result.referred_by, "checked_by": checked_by}
     emit("input_guard", **guard)
     if result.blocked:
         log.warning("input_blocked", category=result.category, rule=result.rule, role=runtime.context.role)

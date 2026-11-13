@@ -110,7 +110,9 @@ def describe(event: str, d: dict) -> str | None:
         if d.get("blocked"):
             return (f"🛡️ **Blocked** – {d.get('category')} (rule: {d.get('rule')}, checked by {d.get('checked_by')}) "
                     f"– no agent will run")
-        return f"🛡️ Input allowed (checked by {d.get('checked_by')}{', suspicious' if d.get('suspicious') else ''})"
+        why = f", second look requested by rule {d['referred_by']}" if d.get("referred_by") else (
+            ", suspicious wording" if d.get("suspicious") else "")
+        return f"🛡️ Input allowed (checked by {d.get('checked_by')}{why})"
     if event == "output_guard":
         if d.get("actions"):
             return "🧯 Output guard changed the answer:  \n" + "  \n".join(f"– {a}" for a in d["actions"])
