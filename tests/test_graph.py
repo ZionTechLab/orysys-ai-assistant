@@ -121,3 +121,33 @@ def test_thread_key_is_scoped_to_user():
 
 def test_safe_error_message_is_short():
     assert len(common._safe(RuntimeError("x" * 500))) <= 160
+
+
+# ---------- named documents ----------
+
+def test_named_doc_ids_are_detected():
+    assert retrieval.named_doc_ids("What actions followed inc-2026-021 and RB-003?") == ["INC-2026-021", "RB-003"]
+    assert retrieval.named_doc_ids("How do we handle PayBridge degradation?") == []
+
+
+async def test_named_document_sections_come_first(monkeypatch):
+    from app.retrieval.hybrid import Hit
+
+    def hit(cid, score):
+        return Hit(cid, cid.split("#")[0], "t", "s", "text", score, "payments", "incident", "internal", "2026-01-01")
+
+    calls = []
+
+    class FakeRetriever:
+        async def search(self, query, clearance, filters=None, top_k=None):
+            calls.append((filters.doc_ids if filters else None, clearance))
+            if filters and filters.doc_ids:
+                return [hit("INC-2026-021#actions", 0.21)]  # below min score, kept: the user named it
+            return [hit("INC-2026-034#actions", 0.5), hit("INC-2026-021#actions", 0.3)]
+
+    monkeypatch.setattr(retrieval, "get_retriever", lambda: FakeRetriever())
+    state = {"messages": [HumanMessage("What actions were agreed after INC-2026-021?")],
+             "plan": {"search_query": "INC-2026-021 agreed actions"}}
+    out = await retrieval.retrieval_agent(state, RUNTIME)
+    assert [e["chunk_id"] for e in out["evidence"]] == ["INC-2026-021#actions", "INC-2026-034#actions"]
+    assert calls[1] == (["INC-2026-021"], ["public", "internal"])  # same clearance on the targeted search

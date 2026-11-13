@@ -1,7 +1,7 @@
 """Builds the LangGraph agent graph.
 
-    START -> input_guard --blocked--> response_agent (fixed refusal) -> validator -> output_guard -> END
-                         --ok-----> supervisor --retrieve--> retrieval_agent ---------------------------------> response_agent -> END
+    START -> input_guard --blocked--> response_agent (fixed refusal) -> validator -> output_guard -> memory -> END
+                         --ok-----> supervisor --retrieve--> retrieval_agent ---------------------------------> response_agent
                         --research--> research_planner =Send×N=> research_worker ⟲ => research_aggregator ->
                         --tool------> tool_agent -> approval_gate (interrupt) -> tool_executor -> response_agent
                         --chitchat--------------------------------------------------------> response_agent
@@ -11,11 +11,13 @@ deferred and continues to the answer only when every selected document is covere
 approval_gate pauses the run with interrupt() for tools that need human approval.
 Every answer passes the validator (citations exist, grounded; a failed answer is rewritten once) and then
 the output guard (secrets, prompt and clearance leakage, brand rules) before it reaches the user.
+The memory node then folds older turns into a rolling summary (agents see summary + recent messages).
 """
 
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.nodes.guard import input_guard
+from app.graph.nodes.memory import memory_manager
 from app.graph.nodes.output_guard import output_guard
 from app.graph.nodes.research import fan_out, research_aggregator, research_planner, research_worker
 from app.graph.nodes.response import response_agent
@@ -52,6 +54,7 @@ def build_graph(checkpointer=None):
     g.add_node("response_agent", response_agent)
     g.add_node("validator", validator, destinations=("response_agent", "output_guard"))
     g.add_node("output_guard", output_guard)
+    g.add_node("memory", memory_manager)
 
     g.add_edge(START, "input_guard")
     g.add_conditional_edges("input_guard", _after_guard, {"ok": "supervisor", "blocked": "response_agent"})
@@ -63,5 +66,6 @@ def build_graph(checkpointer=None):
     g.add_edge("approval_gate", "tool_executor")
     g.add_edge("tool_executor", "response_agent")
     g.add_edge("response_agent", "validator")  # validator passes to the output guard or sends it back once
-    g.add_edge("output_guard", END)
+    g.add_edge("output_guard", "memory")  # rolling summary of older turns, after the answer is out
+    g.add_edge("memory", END)
     return g.compile(checkpointer=checkpointer, name="combank_assistant")

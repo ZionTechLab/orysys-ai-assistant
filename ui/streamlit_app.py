@@ -39,6 +39,7 @@ NODE_LABELS = {
     "approval_gate": "Approval gate – checking if a human must approve",
     "tool_executor": "Tool executor – running the tool (role re-checked)",
     "response_agent": "Response agent – writing the answer",
+    "memory": "Memory – updating the conversation summary",
 }
 QUIET_NODES = {"research_worker", "research_aggregator"}  # their own events are more informative
 
@@ -120,6 +121,9 @@ def describe(event: str, d: dict) -> str | None:
         return f"🧯 Output guard: no issues – brand check {d.get('brand')}{markers}"
     if event == "retrieval_fallback":
         return "🛟 Vector search unavailable – **fallback to local keyword search** (answer marked as degraded)"
+    if event == "retrieval_named_docs":
+        return (f"📌 Question names {', '.join(d['doc_ids'])} – {d['sections']} sections from "
+                f"{'it' if len(d['doc_ids']) == 1 else 'them'} put first (doc_id metadata filter)")
     if event == "content_flagged":
         return f"🧹 Retrieved text cleaned: `{d['chunk_id']}` – {', '.join(d['flags'])}"
     if event == "validation":
@@ -135,6 +139,9 @@ def describe(event: str, d: dict) -> str | None:
         return f"⚙️ Running **{d['tool']}** {d.get('args') or ''}"
     if event == "rbac_denied":
         return f"⛔ RBAC: role **{d['role']}** may not use **{d['tool']}** – denied at execution"
+    if event == "tool_fallback":
+        return (f"🛟 **{d['tool']}** unavailable ({d.get('reason') or 'error'}) – answering from "
+                f"{d.get('source')} instead ({d.get('evidence', 0)} relevant sections)")
     if event == "tool_result":
         return f"📤 {d['tool']}: **{d['status']}** ({d.get('latency_ms', 0)} ms) {d.get('message') or ''}"
     if event == "approval_required":
@@ -180,8 +187,15 @@ def describe(event: str, d: dict) -> str | None:
         return f"✍️ Generating answer from {d.get('evidence', 0)} evidence chunks"
     if event == "response_done":
         return f"📎 Citations: {', '.join(d.get('citations', [])) or 'none'}"
+    if event == "memory_summary":
+        if d.get("action") == "summarized":
+            return (f"🧠 Older turns summarised: {d['added']} messages folded into the summary "
+                    f"({d['chars']} chars); agents now see summary + recent messages")
+        return None  # nothing aged out yet – the memory_update line below says enough
     if event == "memory_update":
-        return f"🧠 Memory saved – conversation has {d.get('messages')} messages"
+        summarized = (f", {d['summarized']} older ones in the summary ({d.get('summary_chars', 0)} chars)"
+                      if d.get("summarized") else "")
+        return f"🧠 Memory saved – conversation has {d.get('messages')} messages{summarized}"
     if event == "error":
         return f"❌ {d.get('message')}"
     return None

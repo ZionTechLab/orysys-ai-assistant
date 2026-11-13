@@ -74,7 +74,7 @@ def _graph_config(user: User, thread_id: str, request_id: str, run_id: uuid.UUID
 
 def _context(user: User, request_id: str) -> UserContext:
     return UserContext(user_id=user.user_id, role=user.role.value, clearance=tuple(user.clearance),
-                       display_name=user.display_name, request_id=request_id)
+                       display_name=user.display_name, request_id=request_id, department=user.department)
 
 
 async def _pending_approval(graph, user: User, thread_id: str) -> dict | None:
@@ -129,12 +129,15 @@ async def _stream_turn(request: Request, user: User, thread_id: str, graph_input
 
     # Memory: the checkpointer has saved this turn; report what the conversation now holds.
     snapshot = await graph.aget_state(config)
-    messages = (snapshot.values or {}).get("messages", []) if snapshot else []
+    values = (snapshot.values or {}) if snapshot else {}
+    messages = values.get("messages", [])
     n_messages = len(messages)
+    summary = values.get("summary") or {}
     if not streamed_tokens and messages and messages[-1].type == "ai":
         # Answers not produced by a streaming model call (guard refusal, fallback message) are sent whole.
         yield _sse("token", {"text": messages[-1].content})
-    yield _sse("memory_update", {"event": "memory_update", "thread_id": thread_id, "messages": n_messages})
+    yield _sse("memory_update", {"event": "memory_update", "thread_id": thread_id, "messages": n_messages,
+                                 "summarized": summary.get("covered", 0), "summary_chars": len(summary.get("text", ""))})
     yield _sse("done", {"thread_id": thread_id, "request_id": request_id, "run_id": str(run_id),
                         "status": "complete", **summary})
 
@@ -194,8 +197,10 @@ async def get_thread(request: Request, thread_id: str, user: User = Depends(get_
         raise InvalidRequestError("Invalid thread id.")
     graph = request.app.state.graph
     snapshot = await graph.aget_state({"configurable": {"thread_id": thread_key(user.user_id, thread_id)}})
-    messages = snapshot.values.get("messages", []) if snapshot and snapshot.values else []
+    values = snapshot.values if snapshot and snapshot.values else {}
+    messages = values.get("messages", [])
     return {
         "thread_id": thread_id,
+        "summary": (values.get("summary") or {}).get("text", ""),
         "messages": [{"role": "user" if m.type == "human" else "assistant", "content": m.content} for m in messages],
     }

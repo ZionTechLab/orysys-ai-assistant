@@ -11,10 +11,10 @@ from app.graph.nodes.common import node, parse_json
 from app.graph.state import AgentState, UserContext
 from app.llm import prompts
 from app.llm.factory import get_llm
+from app.memory.summary import conversation_context
 from app.retrieval.hybrid import NAMESPACES
 
 DOC_TYPES = ("incident", "runbook", "architecture", "policy", "product_spec", "meeting_notes")
-HISTORY_TURNS = 6  # recent messages given to the supervisor to resolve follow-up questions
 
 
 class SupervisorDecision(BaseModel):
@@ -59,12 +59,17 @@ def _fallback(state: AgentState, _exc: Exception) -> dict:
 
 @node("supervisor", on_error=_fallback)
 async def supervisor(state: AgentState, runtime: Runtime[UserContext]) -> dict:
-    history = state["messages"][-HISTORY_TURNS:]
-    convo = "\n".join(f"{m.type}: {m.content}" for m in history)
+    # Memory: summary of older turns + recent messages verbatim, to resolve follow-up questions.
+    summary, recent = conversation_context(state["messages"], state.get("summary"))
+    convo = "\n".join(f"{m.type}: {m.content}" for m in recent)
     system = prompts.SUPERVISOR.replace("{today}", date.today().isoformat())
+    user = runtime.context
+    context = f"User: role {user.role}, department {user.department or 'unknown'}.\n"
+    if summary:
+        context += f"Summary of earlier conversation:\n{summary}\n"
 
     reply = await get_llm("strong").ainvoke(
-        [SystemMessage(system), HumanMessage(f"Conversation (latest last):\n{convo}")]
+        [SystemMessage(system), HumanMessage(f"{context}\nConversation (latest last):\n{convo}")]
     )
     decision = SupervisorDecision.model_validate(parse_json(reply.content))
     if decision.route == "retrieve" and not decision.search_query:

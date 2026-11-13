@@ -27,6 +27,8 @@ class LocalKeywordIndex:
             if d.access_level not in clearance:  # same rule as the Pinecone filter
                 continue
             if filters is not None:
+                if getattr(filters, "doc_ids", None) and d.doc_id not in filters.doc_ids:
+                    continue
                 if filters.departments and d.department not in filters.departments:
                     continue
                 if filters.document_types and d.document_type not in filters.document_types:

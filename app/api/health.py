@@ -52,10 +52,10 @@ async def _check_pinecone() -> str:
 
 
 async def _check_mcp() -> str:
-    s = get_settings()
-    async with httpx.AsyncClient() as client:
-        await client.get(s.mcp_server_url)
-    return "reachable"
+    """A real MCP round trip (authenticated session + tools/list), not just a TCP check."""
+    from app.tools.mcp_tools import list_server_tools
+
+    return f"{len(await list_server_tools())} tools"
 
 
 @router.get("/health")

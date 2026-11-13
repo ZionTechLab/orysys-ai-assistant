@@ -65,6 +65,7 @@ class Tool:
     handler: Callable[[BaseModel, ToolContext], Awaitable[Any]]
     timeout_s: float = 20.0
     requires_approval: bool = False  # human-in-the-loop before running
+    search_fallback: bool = False  # if the tool's system is down, answer from the documents instead
 
     def schema_for_llm(self) -> dict:
         props = self.args_model.model_json_schema().get("properties", {})
@@ -128,6 +129,10 @@ class Registry:
         except TimeoutError:
             return self._finish(ToolResult(name, "timeout", message=f"The tool did not finish within "
                                                                      f"{tool.timeout_s:.0f} s."), ctx, start)
+        except ConnectionError as exc:  # dependency down (e.g. MCP server): expected, no stack trace needed
+            log.warning("tool_unavailable", tool=name, error_type=type(exc).__name__, message=str(exc)[:200])
+            return self._finish(ToolResult(name, "error", message=f"The tool failed ({type(exc).__name__})."),
+                                ctx, start)
         except Exception as exc:  # noqa: BLE001 – a failing tool must not take the conversation down
             log.error("tool_failed", tool=name, error_type=type(exc).__name__, exc_info=exc)
             return self._finish(ToolResult(name, "error", message=f"The tool failed ({type(exc).__name__})."),

@@ -1,7 +1,7 @@
 """Built-in tools. Each one declares its roles, argument schema, timeout and approval need.
 
 Role matrix (brief): Viewer – chat, search · Analyst – search, analytics, MCP · Admin – all tools.
-Analytics (python_analysis) and MCP tools are registered by their own modules (tasks 2.10, 2.12).
+Analytics (app/tools/analysis.py) and MCP tools (app/tools/mcp_tools.py) are registered by their own modules.
 """
 
 from typing import Literal

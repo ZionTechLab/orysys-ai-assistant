@@ -36,7 +36,7 @@ class Chunk:
     doc: DocMeta
     section: str
     text: str  # section body only
-    embed_text: str = field(repr=False, default="")  # title + section + body, used for embeddings and BM25
+    embed_text: str = field(repr=False, default="")  # id + title + section + body, used for embeddings and BM25
 
     def metadata(self) -> dict:
         """Flat metadata stored in Pinecone (filters + attribution)."""

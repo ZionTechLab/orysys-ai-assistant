@@ -34,6 +34,7 @@ class SearchFilters:
     document_types: list[str] | None = None
     created_from: date | None = None
     created_to: date | None = None
+    doc_ids: list[str] | None = None  # only these documents (the user named them)
 
 
 @dataclass
@@ -70,6 +71,8 @@ def build_filter(clearance: list[str], f: SearchFilters | None) -> dict:
         raise ValueError("clearance must not be empty")
     clauses: list[dict] = [{"access_level": {"$in": list(clearance)}}]
     if f:
+        if f.doc_ids:
+            clauses.append({"doc_id": {"$in": list(f.doc_ids)}})
         if f.document_types:
             clauses.append({"document_type": {"$in": f.document_types}})
         if f.created_from:

@@ -76,3 +76,15 @@ def test_namespaces_default_to_all_and_reject_unknown():
     assert _namespaces(SearchFilters(departments=["payments"])) == ["payments"]
     with pytest.raises(ValueError):
         _namespaces(SearchFilters(departments=["treasury"]))
+
+
+def test_named_document_filter_keeps_the_access_clause():
+    flt = build_filter(["public", "internal"], SearchFilters(doc_ids=["INC-2026-021"]))
+    assert {"access_level": {"$in": ["public", "internal"]}} in flt["$and"]
+    assert {"doc_id": {"$in": ["INC-2026-021"]}} in flt["$and"]
+
+
+def test_chunks_index_their_document_id(corpus):
+    """Ids must be in the indexed text, or "INC-2026-021" cannot match by keyword."""
+    _, chunks = corpus
+    assert all(c.embed_text.startswith(c.doc.doc_id + " ") for c in chunks)

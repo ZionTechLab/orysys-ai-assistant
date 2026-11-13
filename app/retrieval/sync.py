@@ -85,10 +85,12 @@ def doc_hash(chunks: list[Chunk]) -> str:
     """Hash of everything that ends up in the index for one document.
 
     Metadata is included on purpose: changing a document's access level or
-    department must re-index it, even if the text is the same.
+    department must re-index it, even if the text is the same. So is the embedded
+    text, so a change to how chunks are built (e.g. adding the id) re-embeds them.
     """
     payload = [
-        {k: v for k, v in c.metadata().items() if k != "source_format"} | {"chunk_id": c.chunk_id}
+        {k: v for k, v in c.metadata().items() if k != "source_format"}
+        | {"chunk_id": c.chunk_id, "embed_text": c.embed_text}
         for c in sorted(chunks, key=lambda c: c.chunk_id)
     ]
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]

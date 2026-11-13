@@ -22,10 +22,14 @@ from app.graph.nodes.common import node, parse_json
 from app.graph.state import AgentState, UserContext
 from app.llm import prompts
 from app.llm.factory import get_llm
-from app.tools import analysis, builtin  # noqa: F401 – registers the tools
+from app.config import get_settings
+from app.logging import get_logger
+from app.security.guards import sanitize_retrieved
+from app.tools import analysis, builtin, mcp_tools  # noqa: F401 – registers the tools
 from app.tools.registry import REGISTRY, ToolContext
 
 MAX_RESULT_CHARS = 8000
+log = get_logger(__name__)
 
 
 def _ctx(runtime: Runtime[UserContext]) -> ToolContext:
@@ -102,4 +106,26 @@ async def tool_executor(state: AgentState, runtime: Runtime[UserContext]) -> dic
         out["data"] = text[:MAX_RESULT_CHARS] + " …[truncated]"
     emit("tool_result", tool=name, status=result.status, latency_ms=result.latency_ms, message=result.message,
          preview=text[:300])
+
+    tool = REGISTRY.tools.get(name)
+    if result.status in ("error", "timeout") and tool is not None and tool.search_fallback:
+        # Graceful degradation: the live system (e.g. the MCP server) is down – answer from the documents.
+        evidence = await _search_documents(state, ctx)
+        emit("tool_fallback", tool=name, reason=result.message, source="document search", evidence=len(evidence))
+        return {"tool_result": out, "evidence": evidence, "degraded": {"mcp_down": True}}
     return {"tool_result": out}
+
+
+async def _search_documents(state: AgentState, ctx: ToolContext) -> list[dict]:
+    """Hybrid search with the user's question and clearance; [] if search is down as well."""
+    from app.retrieval.hybrid import get_retriever
+
+    try:
+        hits = await get_retriever().search(state["messages"][-1].content, list(ctx.clearance), top_k=5)
+    except Exception as exc:  # noqa: BLE001 – both systems down: the answer says the action failed
+        log.warning("tool_fallback_search_failed", error_type=type(exc).__name__)
+        return []
+    min_score = get_settings().retrieval_min_score
+    return [{"chunk_id": h.chunk_id, "doc_id": h.doc_id, "title": h.title, "section": h.section,
+             "text": sanitize_retrieved(h.text).text, "score": h.score, "document_type": h.document_type,
+             "created_date": h.created_date} for h in hits if h.score >= min_score]

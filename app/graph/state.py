@@ -23,6 +23,7 @@ class UserContext:
     clearance: tuple[str, ...]
     display_name: str = ""
     request_id: str = ""
+    department: str = ""
 
 
 class Plan(TypedDict, total=False):
@@ -121,6 +122,8 @@ class AgentState(TypedDict, total=False):
     guard: Annotated[dict, _replace]        # input guard verdict
     validation: Annotated[dict, _replace]   # validator verdict: ok, action, attempt, problems, grounding
     output_guard: Annotated[dict, _replace]  # output guard verdict: actions, brand
+    # Memory – rolling summary of older turns; persists across turns (not reset by new_turn_state)
+    summary: Annotated[dict, _replace]       # {"text", "covered": messages folded in, "turns": updates so far}
     # Failures recorded by nodes instead of crashing the graph
     errors: Annotated[list[NodeError], _append]
     degraded: Annotated[dict[str, bool], _merge_dict]

@@ -34,6 +34,7 @@ python -m venv .venv
 cp .env.example .env                              # fill in keys
 .venv/Scripts/python scripts/smoke_llm.py        # check the LLM gateway (JSON + streaming)
 .venv/Scripts/python scripts/ingest.py           # create index + sync documents (--dry-run, --full)
+.venv/Scripts/python -m mcp_server               # MCP server on 127.0.0.1:8765 (needs MCP_API_KEY in .env)
 .venv/Scripts/uvicorn app.main:app --reload       # API on :8000
 .venv/Scripts/streamlit run ui/streamlit_app.py --server.address 127.0.0.1  # UI on localhost:8501 only
 .venv/Scripts/pytest

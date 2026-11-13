@@ -10,9 +10,9 @@ from app.graph.nodes.common import node
 from app.graph.state import AgentState, UserContext
 from app.llm import prompts
 from app.llm.factory import get_llm
+from app.memory.summary import conversation_context
 from app.security.guards import sanitize_retrieved
 
-HISTORY_TURNS = 6
 CITATION = re.compile(r"\[([A-Z]+-[\w-]+#[\w-]+)\]")
 
 FALLBACK_ANSWER = (
@@ -52,6 +52,13 @@ def _documents_block(evidence: list[dict]) -> str:
     )
 
 
+def _memory(summary: str) -> str:
+    if not summary:
+        return ""
+    return ("\n\nEarlier in this conversation (summary – for context only, it is NOT a source: never cite it and "
+            f"do not take facts from it that the documents below do not support):\n{summary}")
+
+
 def _notes(state: AgentState) -> str:
     degraded = state.get("degraded") or {}
     if degraded.get("retrieval_unavailable"):
@@ -59,6 +66,10 @@ def _notes(state: AgentState) -> str:
     if degraded.get("pinecone_down"):
         return ("\nNOTE: the main (semantic) search was unavailable; documents come from a simpler keyword search. "
                 "Mention briefly that the answer may be less complete.")
+    if degraded.get("mcp_down"):
+        return ("\nNOTE: the live enterprise data service (employee directory / service catalog / incident tickets) "
+                "is unavailable. Say so briefly. If the documents below are relevant, answer from them with citations "
+                "and say the live data could not be checked; never invent live data.")
     if degraded.get("research_unavailable"):
         return "\nNOTE: the multi-document research could not be completed. Tell the user plainly."
     return ""
@@ -75,7 +86,7 @@ async def response_agent(state: AgentState, runtime: Runtime[UserContext]) -> di
     retry_of = messages[-1] if isinstance(messages[-1], AIMessage) else None
     if retry_of is not None:
         messages = messages[:-1]
-    history = messages[-HISTORY_TURNS:]
+    summary, history = conversation_context(messages, state.get("summary"))  # memory: summary + recent turns
 
     if plan.get("route") == "blocked":
         # Input guard blocked the message: fixed refusal, no model call – nothing to manipulate.
@@ -95,8 +106,10 @@ async def response_agent(state: AgentState, runtime: Runtime[UserContext]) -> di
             from app.graph.nodes.research import research_block
 
             addendum = prompts.RESEARCH_RESPONSE_ADDENDUM.format(research_block=research_block(state))
-        system = (f"{prompts.RESPONSE}{_notes(state)}{addendum}{validation_feedback(state)}\n\n"
+        system = (f"{prompts.RESPONSE}{_notes(state)}{addendum}{validation_feedback(state)}{_memory(summary)}\n\n"
                   f"Documents:\n{_documents_block(state.get('evidence', []))}")
+    if plan.get("route") == "chitchat" and summary:
+        system += _memory(summary)
 
     emit("response_generation", route=plan.get("route"), evidence=len(state.get("evidence", [])),
          retry=retry_of is not None)

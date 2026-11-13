@@ -21,7 +21,8 @@ def build_chunks(parsed: ParsedDocument) -> list[Chunk]:
             doc=doc,
             section=heading,
             text=body,
-            embed_text=f"{doc.title}\n{heading}\n{body}",
+            # The id is part of the indexed text, so "INC-2026-021" matches by keyword (BM25).
+            embed_text=f"{doc.doc_id} {doc.title}\n{heading}\n{body}",
         )
         for heading, body in parsed.sections
         if body

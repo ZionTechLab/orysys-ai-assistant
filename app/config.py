@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     retrieval_min_score: float = 0.25  # hits below this are not used as evidence
     retrieval_local_fallback: bool = True  # Pinecone down -> in-memory BM25 over the same chunks
     memory_db_path: str = "data/memory.db"
+    memory_window_messages: int = 6     # recent messages agents see verbatim
+    memory_summarize_batch: int = 4     # summarise once this many messages have aged out of the window
+    memory_summary_max_chars: int = 1500
     retrieval_timeout_seconds: float = 10.0
 
     # LangSmith
@@ -61,8 +64,10 @@ class Settings(BaseSettings):
     login_rate_capacity: int = 5                # login attempts per username before slowing down
     login_rate_refill_per_sec: float = 1 / 60   # then one attempt per minute
 
-    # MCP
-    mcp_server_url: str = "http://localhost:8765/mcp"
+    # MCP (enterprise data server, mcp_server/)
+    mcp_server_url: str = "http://127.0.0.1:8765/mcp"
+    mcp_api_key: SecretStr = SecretStr("")  # shared service key; the server refuses to start without one
+    mcp_timeout_seconds: float = 10.0
 
     # Health checks
     health_check_timeout_seconds: float = 6.0
