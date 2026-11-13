@@ -27,6 +27,9 @@ ss.setdefault("activity", [])  # events of the latest turn
 ss.setdefault("pending", None)  # tool call waiting for human approval
 
 NODE_LABELS = {
+    "input_guard": "Input guard – checking for prompt injection",
+    "validator": "Validator – checking citations and grounding",
+    "output_guard": "Output guard – secrets, leakage and brand rules",
     "supervisor": "Supervisor – understanding the question",
     "retrieval_agent": "Retrieval agent – searching documents",
     "research_planner": "Research planner – writing a Python search plan",
@@ -103,6 +106,24 @@ def describe(event: str, d: dict) -> str | None:
         calls = ", ".join(f"{k}×{v}" for k, v in (d.get("catalog_calls") or {}).items() if k != "chars_read")
         code = f"\n```python\n{d['code']}\n```" if d.get("code") else ""
         return f"🧪 Plan attempt {d['attempt']}: {status}  \nSandbox: {d.get('lines_executed', 0)} lines, {calls or '-'}{code}"
+    if event == "input_guard":
+        if d.get("blocked"):
+            return (f"🛡️ **Blocked** – {d.get('category')} (rule: {d.get('rule')}, checked by {d.get('checked_by')}) "
+                    f"– no agent will run")
+        return f"🛡️ Input allowed (checked by {d.get('checked_by')}{', suspicious' if d.get('suspicious') else ''})"
+    if event == "output_guard":
+        if d.get("actions"):
+            return "🧯 Output guard changed the answer:  \n" + "  \n".join(f"– {a}" for a in d["actions"])
+        markers = f" (markers: {', '.join(d['markers'])})" if d.get("markers") else ""
+        return f"🧯 Output guard: no issues – brand check {d.get('brand')}{markers}"
+    if event == "content_flagged":
+        return f"🧹 Retrieved text cleaned: `{d['chunk_id']}` – {', '.join(d['flags'])}"
+    if event == "validation":
+        icon = {"accepted": "✅", "retry": "🔄", "repaired": "🩹"}.get(d.get("action"), "•")
+        text = {"accepted": "Answer validated", "retry": "Answer rejected – rewriting once",
+                "repaired": "Still failing – invalid citations removed"}.get(d.get("action"), d.get("action"))
+        problems = "  \n".join(f"– {p}" for p in d.get("problems", []))
+        return f"{icon} {text} (grounding: {d.get('grounding')})" + (f"  \n{problems}" if problems else "")
     if event == "tool_selected":
         offered = ", ".join(d.get("offered", [])) or "none"
         return f"🧰 Tools offered to this role: {offered}  \nChosen: **{d.get('tool') or 'none'}** {d.get('args') or ''}"
@@ -229,6 +250,15 @@ with chat_col:
                     continue
                 ss.activity.append((event, data))
                 render_activity(panel, ss.activity)
+                if event == "validation" and data.get("action") == "retry":
+                    answer = ""  # the rewritten answer streams in next and replaces this one
+                    box.markdown("_Answer failed validation – revising…_")
+                if event == "output_guard" and data.get("answer"):
+                    answer = data["answer"]
+                    box.markdown(answer)
+                if event == "validation" and data.get("action") == "repaired" and data.get("answer"):
+                    answer = data["answer"]
+                    box.markdown(answer)
                 if event == "approval_required":
                     ss.pending = data
                 if event == "error":

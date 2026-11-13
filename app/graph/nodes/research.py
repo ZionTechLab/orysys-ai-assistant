@@ -38,6 +38,7 @@ from app.llm import prompts
 from app.llm.factory import get_llm
 from app.rlm.catalog import Catalog, CatalogError
 from app.rlm.sandbox import run_plan
+from app.security.guards import sanitize_retrieved
 
 MAX_DOCS = 24
 PLAN_ATTEMPTS = 3
@@ -208,7 +209,10 @@ async def _analyse_document(doc_id: str, task: dict, catalog: Catalog) -> dict:
         meta = catalog.get_doc(doc_id)
         read = []
         for section in _choose_sections(meta["sections"]):
-            text = catalog.read_section(doc_id, section)
+            checked = sanitize_retrieved(catalog.read_section(doc_id, section))
+            if checked.flags:
+                emit("content_flagged", chunk_id=_section_id(doc_id, section), flags=checked.flags)
+            text = checked.text
             read.append({"chunk_id": _section_id(doc_id, section), "title": meta["title"], "section": section,
                          "date": meta["created_date"], "text": text})
         blocks = "\n\n".join(f'<document id="{s["chunk_id"]}" title="{s["title"]}" date="{s["date"]}">\n'

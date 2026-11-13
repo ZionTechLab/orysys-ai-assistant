@@ -9,6 +9,7 @@ from app.graph.events import emit
 from app.graph.nodes.common import node
 from app.graph.state import AgentState, UserContext
 from app.retrieval.hybrid import SearchFilters, get_retriever
+from app.security.guards import sanitize_retrieved
 
 
 def _fallback(_state: AgentState, _exc: Exception) -> dict:
@@ -40,10 +41,14 @@ async def retrieval_agent(state: AgentState, runtime: Runtime[UserContext]) -> d
 
     emit("retrieval", query=query, hits=len(hits), relevant=len(relevant), min_score=s.retrieval_min_score,
          top=[{"chunk_id": h.chunk_id, "score": h.score} for h in relevant[:5]])
-    return {
-        "evidence": [
-            {"chunk_id": h.chunk_id, "doc_id": h.doc_id, "title": h.title, "section": h.section, "text": h.text,
-             "score": h.score, "document_type": h.document_type, "created_date": h.created_date}
-            for h in relevant
-        ]
-    }
+
+    # Retrieved text is untrusted: clean it before any model sees it, and make flags visible.
+    evidence = []
+    for h in relevant:
+        checked = sanitize_retrieved(h.text)
+        if checked.flags:
+            emit("content_flagged", chunk_id=h.chunk_id, flags=checked.flags)
+        evidence.append({"chunk_id": h.chunk_id, "doc_id": h.doc_id, "title": h.title, "section": h.section,
+                         "text": checked.text, "score": h.score, "document_type": h.document_type,
+                         "created_date": h.created_date})
+    return {"evidence": evidence}

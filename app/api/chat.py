@@ -84,6 +84,7 @@ async def _stream_turn(request: Request, user: User, thread_id: str, graph_input
     run_id = uuid.uuid4()
     config = _graph_config(user, thread_id, request_id, run_id)
     summary: dict = {"route": None, "citations": []}
+    streamed_tokens = 0
 
     try:
         async for mode, chunk in graph.astream(graph_input, config=config, context=_context(user, request_id),
@@ -102,6 +103,7 @@ async def _stream_turn(request: Request, user: User, thread_id: str, graph_input
                 msg, meta = chunk
                 # Only streamed pieces of the final answer; the supervisor's JSON is not shown as answer text.
                 if isinstance(msg, AIMessageChunk) and meta.get("langgraph_node") == "response_agent" and msg.content:
+                    streamed_tokens += 1
                     yield _sse("token", {"text": msg.content})
     except Exception as exc:  # noqa: BLE001 – the stream must end with a clean error event
         log.error("chat_turn_failed", error_type=type(exc).__name__, exc_info=exc)
@@ -120,7 +122,11 @@ async def _stream_turn(request: Request, user: User, thread_id: str, graph_input
 
     # Memory: the checkpointer has saved this turn; report what the conversation now holds.
     snapshot = await graph.aget_state(config)
-    n_messages = len((snapshot.values or {}).get("messages", [])) if snapshot else 0
+    messages = (snapshot.values or {}).get("messages", []) if snapshot else []
+    n_messages = len(messages)
+    if not streamed_tokens and messages and messages[-1].type == "ai":
+        # Answers not produced by a streaming model call (guard refusal, fallback message) are sent whole.
+        yield _sse("token", {"text": messages[-1].content})
     yield _sse("memory_update", {"event": "memory_update", "thread_id": thread_id, "messages": n_messages})
     yield _sse("done", {"thread_id": thread_id, "request_id": request_id, "run_id": str(run_id),
                         "status": "complete", **summary})

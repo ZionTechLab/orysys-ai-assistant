@@ -31,9 +31,11 @@ async def knowledge_search(args: KnowledgeSearchArgs, ctx: ToolContext) -> list[
 
     filters = SearchFilters(departments=[args.department] if args.department else None,
                             document_types=[args.document_type] if args.document_type else None)
+    from app.security.guards import sanitize_retrieved
+
     hits = await get_retriever().search(args.query, list(ctx.clearance), filters, top_k=args.top_k)
     return [{"chunk_id": h.chunk_id, "title": h.title, "section": h.section, "score": h.score,
-             "text": h.text[:600]} for h in hits]
+             "text": sanitize_retrieved(h.text).text[:600]} for h in hits]
 
 
 # ---------- admin_reindex ----------
