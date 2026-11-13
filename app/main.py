@@ -5,7 +5,7 @@ import uuid
 
 from fastapi import FastAPI, Request
 
-from app.api import health
+from app.api import auth, health
 from app.config import get_settings
 from app.errors import register_exception_handlers
 
@@ -26,6 +26,7 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(health.router)
+    app.include_router(auth.router)
     return app
 
 
