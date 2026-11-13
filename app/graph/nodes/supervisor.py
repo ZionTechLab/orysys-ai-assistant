@@ -30,7 +30,7 @@ class SupervisorDecision(BaseModel):
     @field_validator("route")
     @classmethod
     def _route(cls, v: str) -> str:
-        return v if v in ("retrieve", "research", "chitchat") else "retrieve"  # unknown -> safest useful default
+        return v if v in ("retrieve", "research", "tool", "chitchat") else "retrieve"  # unknown -> safest useful default
 
     @field_validator("departments")
     @classmethod

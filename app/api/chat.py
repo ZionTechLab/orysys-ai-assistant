@@ -5,8 +5,10 @@ Event types (see docs/architecture.md D3):
   response_done            – agent activity (from nodes, via LangGraph custom stream)
   token                    – a piece of the answer
   memory_update            – the turn was saved; message count of the conversation
+  approval_required        – the run is paused until the user approves or rejects a tool call
+                             (POST /chat/resume continues it)
   error                    – the turn failed; message is safe to show
-  done                     – final summary: thread_id, route, citations, run_id
+  done                     – final summary: thread_id, route, citations, run_id, status
 """
 
 import json
@@ -18,11 +20,14 @@ from langchain_core.messages import AIMessageChunk
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from app.errors import InvalidRequestError
+from langgraph.types import Command
+
+from app.errors import AppError, InvalidRequestError, PermissionDeniedError
 from app.graph.state import UserContext, new_turn_state
 from app.logging import bind_context, fingerprint, get_logger
 from app.memory.checkpointer import thread_key
 from app.security.auth import User, get_current_user
+from app.tools.registry import REGISTRY, ToolContext
 
 router = APIRouter(tags=["chat"])
 log = get_logger(__name__)
@@ -33,6 +38,15 @@ THREAD_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 class ChatRequest(BaseModel):
     thread_id: str = Field(pattern=THREAD_ID_PATTERN)
     message: str = Field(min_length=1, max_length=4000)
+
+
+class ResumeRequest(BaseModel):
+    thread_id: str = Field(pattern=THREAD_ID_PATTERN)
+    approved: bool
+
+
+class ConflictError(AppError):
+    status_code, code, message = 409, "approval_pending", "Approve or reject the pending action first."
 
 
 def _sse(event: str, data: dict) -> dict:
@@ -51,17 +65,28 @@ def _graph_config(user: User, thread_id: str, request_id: str, run_id: uuid.UUID
     }
 
 
-async def _stream_turn(request: Request, user: User, body: ChatRequest) -> AsyncIterator[dict]:
+def _context(user: User, request_id: str) -> UserContext:
+    return UserContext(user_id=user.user_id, role=user.role.value, clearance=tuple(user.clearance),
+                       display_name=user.display_name, request_id=request_id)
+
+
+async def _pending_approval(graph, user: User, thread_id: str) -> dict | None:
+    """The interrupt payload if this user's thread is paused waiting for approval."""
+    snapshot = await graph.aget_state({"configurable": {"thread_id": thread_key(user.user_id, thread_id)}})
+    interrupts = getattr(snapshot, "interrupts", ()) if snapshot else ()
+    return dict(interrupts[0].value) if interrupts else None
+
+
+async def _stream_turn(request: Request, user: User, thread_id: str, graph_input) -> AsyncIterator[dict]:
+    """Run (or resume) the graph and stream its events. Used by /chat and /chat/resume."""
     graph = request.app.state.graph
     request_id = request.state.request_id
     run_id = uuid.uuid4()
-    context = UserContext(user_id=user.user_id, role=user.role.value, clearance=tuple(user.clearance),
-                          display_name=user.display_name, request_id=request_id)
-    config = _graph_config(user, body.thread_id, request_id, run_id)
+    config = _graph_config(user, thread_id, request_id, run_id)
     summary: dict = {"route": None, "citations": []}
 
     try:
-        async for mode, chunk in graph.astream(new_turn_state(body.message), config=config, context=context,
+        async for mode, chunk in graph.astream(graph_input, config=config, context=_context(user, request_id),
                                                 stream_mode=["custom", "messages"]):
             if await request.is_disconnected():
                 log.info("client_disconnected")
@@ -84,19 +109,46 @@ async def _stream_turn(request: Request, user: User, body: ChatRequest) -> Async
                              "request_id": request_id})
         return
 
+    pending = await _pending_approval(graph, user, thread_id)
+    if pending:
+        # Human-in-the-loop: the run is paused (state saved by the checkpointer) until /chat/resume.
+        log.info("approval_required", tool=pending.get("tool"))
+        yield _sse("approval_required", {"event": "approval_required", "thread_id": thread_id, **pending})
+        yield _sse("done", {"thread_id": thread_id, "request_id": request_id, "run_id": str(run_id),
+                            "status": "awaiting_approval", **summary})
+        return
+
     # Memory: the checkpointer has saved this turn; report what the conversation now holds.
     snapshot = await graph.aget_state(config)
     n_messages = len((snapshot.values or {}).get("messages", [])) if snapshot else 0
-    yield _sse("memory_update", {"event": "memory_update", "thread_id": body.thread_id, "messages": n_messages})
-
-    yield _sse("done", {"thread_id": body.thread_id, "request_id": request_id, "run_id": str(run_id), **summary})
+    yield _sse("memory_update", {"event": "memory_update", "thread_id": thread_id, "messages": n_messages})
+    yield _sse("done", {"thread_id": thread_id, "request_id": request_id, "run_id": str(run_id),
+                        "status": "complete", **summary})
 
 
 @router.post("/chat")
 async def chat(request: Request, body: ChatRequest, user: User = Depends(get_current_user)) -> EventSourceResponse:
     bind_context(thread_id=body.thread_id)
     log.info("chat_request", **fingerprint(body.message))
-    return EventSourceResponse(_stream_turn(request, user, body), ping=15)
+    if await _pending_approval(request.app.state.graph, user, body.thread_id):
+        raise ConflictError()
+    return EventSourceResponse(_stream_turn(request, user, body.thread_id, new_turn_state(body.message)), ping=15)
+
+
+@router.post("/chat/resume")
+async def resume(request: Request, body: ResumeRequest, user: User = Depends(get_current_user)) -> EventSourceResponse:
+    """Approve or reject the tool call the run is paused on, then continue streaming."""
+    bind_context(thread_id=body.thread_id)
+    pending = await _pending_approval(request.app.state.graph, user, body.thread_id)
+    if not pending:
+        raise InvalidRequestError("There is no action waiting for approval in this conversation.")
+    try:  # the approver must be allowed to run the tool themselves
+        REGISTRY.check(pending.get("tool", ""), ToolContext(user.user_id, user.role.value, tuple(user.clearance)))
+    except (KeyError, PermissionError):
+        raise PermissionDeniedError("You are not allowed to approve this action.") from None
+    log.info("approval_decision", tool=pending.get("tool"), approved=body.approved)
+    decision = Command(resume={"approved": body.approved, "by": user.user_id})
+    return EventSourceResponse(_stream_turn(request, user, body.thread_id, decision), ping=15)
 
 
 @router.get("/traces/{run_id}")

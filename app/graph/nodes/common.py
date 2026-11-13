@@ -6,6 +6,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable
 
+from langgraph.errors import GraphBubbleUp
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
@@ -33,6 +34,8 @@ def node(name: str, on_error: Callable[[AgentState, Exception], dict] | None = N
                 update = await fn(state, runtime)
                 emit("node_end", node=name, status="ok", latency_ms=_ms(start))
                 return update
+            except GraphBubbleUp:
+                raise  # interrupt() for human approval is control flow, not a failure
             except Exception as exc:  # noqa: BLE001 – isolation is the point of this wrapper
                 emit("node_error", node=name, error_type=type(exc).__name__, latency_ms=_ms(start))
                 fallback = on_error(state, exc) if on_error else {}

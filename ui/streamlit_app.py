@@ -24,6 +24,7 @@ ss.setdefault("user", None)
 ss.setdefault("thread_id", uuid.uuid4().hex[:12])
 ss.setdefault("messages", [])  # [{"role", "content", "citations", "trace"}]
 ss.setdefault("activity", [])  # events of the latest turn
+ss.setdefault("pending", None)  # tool call waiting for human approval
 
 NODE_LABELS = {
     "supervisor": "Supervisor – understanding the question",
@@ -31,6 +32,9 @@ NODE_LABELS = {
     "research_planner": "Research planner – writing a Python search plan",
     "research_worker": "Research worker – analysing a batch",
     "research_aggregator": "Research aggregator – combining findings",
+    "tool_agent": "Tool agent – choosing a tool",
+    "approval_gate": "Approval gate – checking if a human must approve",
+    "tool_executor": "Tool executor – running the tool (role re-checked)",
     "response_agent": "Response agent – writing the answer",
 }
 QUIET_NODES = {"research_worker", "research_aggregator"}  # their own events are more informative
@@ -53,10 +57,9 @@ def auth_headers() -> dict:
     return {"Authorization": f"Bearer {ss.token}"}
 
 
-def stream_chat(message: str):
-    """Yield (event, data) pairs from the /chat Server-Sent Events stream."""
-    with httpx.stream("POST", f"{API_URL}/chat", json={"thread_id": ss.thread_id, "message": message},
-                      headers=auth_headers(), timeout=TIMEOUT) as r:
+def stream_events(path: str, payload: dict):
+    """Yield (event, data) pairs from a Server-Sent Events endpoint (/chat or /chat/resume)."""
+    with httpx.stream("POST", f"{API_URL}{path}", json=payload, headers=auth_headers(), timeout=TIMEOUT) as r:
         if r.status_code != 200:
             r.read()
             try:
@@ -100,6 +103,19 @@ def describe(event: str, d: dict) -> str | None:
         calls = ", ".join(f"{k}×{v}" for k, v in (d.get("catalog_calls") or {}).items() if k != "chars_read")
         code = f"\n```python\n{d['code']}\n```" if d.get("code") else ""
         return f"🧪 Plan attempt {d['attempt']}: {status}  \nSandbox: {d.get('lines_executed', 0)} lines, {calls or '-'}{code}"
+    if event == "tool_selected":
+        offered = ", ".join(d.get("offered", [])) or "none"
+        return f"🧰 Tools offered to this role: {offered}  \nChosen: **{d.get('tool') or 'none'}** {d.get('args') or ''}"
+    if event == "tool_call":
+        return f"⚙️ Running **{d['tool']}** {d.get('args') or ''}"
+    if event == "rbac_denied":
+        return f"⛔ RBAC: role **{d['role']}** may not use **{d['tool']}** – denied at execution"
+    if event == "tool_result":
+        return f"📤 {d['tool']}: **{d['status']}** ({d.get('latency_ms', 0)} ms) {d.get('message') or ''}"
+    if event == "approval_required":
+        return f"✋ Waiting for approval to run **{d.get('tool')}** {d.get('args') or ''}"
+    if event == "approval_decision":
+        return f"{'👍 Approved' if d.get('approved') else '👎 Rejected'} by {d.get('by')}"
     if event == "rlm_fallback":
         return f"↩️ No valid plan – {d.get('documents', 0)} documents selected by search instead"
     if event == "rlm_batches":
@@ -175,7 +191,7 @@ with st.sidebar:
     st.caption(f"Conversation: `{ss.thread_id}`")
     c1, c2 = st.columns(2)
     if c1.button("New chat"):
-        ss.thread_id, ss.messages, ss.activity = uuid.uuid4().hex[:12], [], []
+        ss.thread_id, ss.messages, ss.activity, ss.pending = uuid.uuid4().hex[:12], [], [], None
         st.rerun()
     if c2.button("Log out"):
         for k in ("token", "user"):
@@ -199,30 +215,51 @@ with chat_col:
             if m.get("trace"):
                 st.caption(f"[LangSmith trace]({m['trace']})")
 
-    prompt = st.chat_input("Ask about policies, incidents, runbooks…")
-    if prompt:
-        ss.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
+    def run_turn(path: str, payload: dict) -> None:
+        """Stream one turn (new question or resumed run) into the chat and the activity panel."""
         ss.activity = []
         answer, run_id = "", None
         with st.chat_message("assistant"):
             box = st.empty()
             box.markdown("_Thinking…_")
-            for event, data in stream_chat(prompt):
+            for event, data in stream_events(path, payload):
                 if event == "token":
                     answer += data["text"]
                     box.markdown(answer + "▌")
                     continue
                 ss.activity.append((event, data))
                 render_activity(panel, ss.activity)
+                if event == "approval_required":
+                    ss.pending = data
                 if event == "error":
                     answer = answer or f"⚠️ {data.get('message')}"
                 if event == "done":
                     run_id = data.get("run_id")
+            if ss.pending and not answer:
+                answer = f"✋ This action needs approval: **{ss.pending.get('tool')}** {ss.pending.get('args') or ''}"
             box.markdown(answer)
             url = trace_link(run_id) if run_id else None
             if url:
                 st.caption(f"[LangSmith trace]({url})")
         ss.messages.append({"role": "assistant", "content": answer, "trace": url})
+
+    # Human-in-the-loop: a paused run waits here until the user decides.
+    if ss.pending:
+        p = ss.pending
+        st.warning(f"**Approval required** – run `{p.get('tool')}` with {p.get('args') or 'no arguments'}?  \n"
+                   f"Reason: {p.get('reason') or '-'}")
+        a, r = st.columns(2)
+        decision = True if a.button("✅ Approve") else False if r.button("❌ Reject") else None
+        if decision is not None:
+            ss.pending = None
+            run_turn("/chat/resume", {"thread_id": ss.thread_id, "approved": decision})
+            st.rerun()
+
+    prompt = st.chat_input("Ask about policies, incidents, runbooks…", disabled=bool(ss.pending))
+    if prompt:
+        ss.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        run_turn("/chat", {"thread_id": ss.thread_id, "message": prompt})
+        if ss.pending:
+            st.rerun()  # show the approval buttons

@@ -52,7 +52,12 @@ async def response_agent(state: AgentState, runtime: Runtime[UserContext]) -> di
         system = prompts.CHITCHAT
     else:
         addendum = ""
-        if plan.get("route") == "research":
+        if plan.get("route") == "tool":
+            import json
+
+            addendum = prompts.TOOL_RESPONSE_ADDENDUM.replace(
+                "{tool_result}", json.dumps(state.get("tool_result") or {}, default=str)[:9000])
+        elif plan.get("route") == "research":
             from app.graph.nodes.research import research_block
 
             addendum = prompts.RESEARCH_RESPONSE_ADDENDUM.format(research_block=research_block(state))

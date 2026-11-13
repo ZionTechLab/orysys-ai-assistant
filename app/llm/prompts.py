@@ -8,7 +8,7 @@ Decide how to handle the user's latest message. Reply with JSON only – no pros
 Schema:
 {{
   "intent": "<one short sentence: what the user wants>",
-  "route": "retrieve" | "research" | "chitchat",
+  "route": "retrieve" | "research" | "tool" | "chitchat",
   "search_query": "<standalone search query; resolve pronouns using the conversation>",
   "departments": [<zero or more of: "payments", "cards", "core-banking", "security", "hr">],
   "document_types": [<zero or more of: "incident", "runbook", "architecture", "policy", "product_spec", "meeting_notes">],
@@ -22,6 +22,9 @@ Rules:
   find recurring or common causes, trends, patterns, counts, or compare several documents.
 - "retrieve" for any other question about the bank's systems, incidents, policies, runbooks, products or meetings
   (a specific fact, one incident, how to do something).
+- "tool" when the user asks for an ACTION or system data rather than document knowledge: re-index / refresh the
+  documents, show the audit log, look up live data (employee directory, service catalog, incident records),
+  or run an analysis/calculation on data.
 - "chitchat" only for greetings, thanks, or questions about what you can do.
 - Leave departments / document_types empty unless the user clearly limits the scope.
 - Dates: today is {{today}}. "last year" means the 12 months before today.
@@ -128,3 +131,30 @@ If some documents could not be analysed, say so.
 
 Research results:
 {research_block}"""
+
+
+# ---------- Tool agent ----------
+
+TOOL_AGENT = """You choose a tool for the user's request. You may ONLY use the tools listed below.
+Reply with JSON only (no prose, no code fences):
+{"tool": "<tool name or none>", "args": {<arguments matching the tool's args>}, "reason": "<one sentence>"}
+
+Use "none" if no listed tool fits the request. Never invent tool names or arguments.
+
+Tools available to this user:
+{tools}"""
+
+TOOL_RESPONSE_ADDENDUM = """
+
+The user's request was handled by a tool. Explain the outcome briefly and clearly:
+- status "ok": summarise the result (use a short table or list if it has several items); cite chunk ids in
+  square brackets if the result contains them.
+- status "denied": say politely that their role does not have permission for this action and that an
+  administrator can help. Do not describe how permissions work internally.
+- status "rejected": say the action was not approved, so nothing was changed.
+- status "no_tool": say you cannot do that here and what you can do instead.
+- status "invalid_args", "timeout", "error", "unknown_tool": say the action could not be completed and suggest
+  trying again later. Never invent a result.
+
+Tool result (JSON):
+{tool_result}"""

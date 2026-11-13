@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal, TypedDict
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
 
-Route = Literal["retrieve", "research", "chitchat"]
+Route = Literal["retrieve", "research", "tool", "chitchat"]
 
 
 @dataclass(frozen=True)
@@ -116,6 +116,8 @@ class AgentState(TypedDict, total=False):
     evidence: Annotated[list[Evidence], _replace]
     research: Annotated[Research, _replace]
     findings: Annotated[list[Finding], _findings]
+    tool_call: Annotated[dict, _replace]    # {"tool", "args", "reason", "approved", "approved_by"}
+    tool_result: Annotated[dict, _replace]  # {"tool", "status", "data", "message", "latency_ms"}
     # Failures recorded by nodes instead of crashing the graph
     errors: Annotated[list[NodeError], _append]
     degraded: Annotated[dict[str, bool], _merge_dict]
@@ -130,6 +132,8 @@ def new_turn_state(question: str) -> dict:
         "plan": {},
         "evidence": [],
         "research": {},
+        "tool_call": {},
+        "tool_result": {},
         "degraded": {},
     }
 
