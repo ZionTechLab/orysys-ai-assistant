@@ -5,6 +5,8 @@
    A violation is rewritten once by the strong model; if the rewrite is unavailable or still
    breaks a rule, a safe neutral message is used instead.
 The final text replaces the answer in place (same message id), so memory holds the guarded version.
+If the guard itself fails, it fails closed: the answer is withheld (unlike the input guard and the
+validator, which fail open for availability – their failure does not expose anything).
 """
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -25,8 +27,23 @@ SAFE_FALLBACK = ("I can't phrase an answer to that in line with the bank's commu
                  "department. I'm happy to help with questions about the bank's policies, systems and incidents.")
 
 
-def _pass_through(_state: AgentState, _exc: Exception) -> dict:
-    return {"output_guard": {"checked": False, "actions": [], "brand": "skipped (error)"}}
+WITHHELD = ("I couldn't complete the final safety check on this answer, so I have withheld it. "
+            "Please try again in a moment.")
+
+
+def _withhold(state: AgentState, _exc: Exception) -> dict:
+    """Fail closed. This is the last leak barrier: if it could not run, the answer is not shown.
+
+    (A failing brand check is handled inside the node and does not get here – only an unexpected
+    error in the guard itself does.)
+    """
+    result = {"checked": False, "actions": ["withheld: output check failed"], "brand": "skipped (error)"}
+    messages = state.get("messages") or []
+    last = messages[-1] if messages else None
+    if not isinstance(last, AIMessage) or (state.get("plan") or {}).get("route") == "blocked":
+        return {"output_guard": result}  # fixed refusals are not model output: nothing to withhold
+    emit("output_guard", **result, answer=WITHHELD)  # the UI replaces the streamed text with this
+    return {"output_guard": result, "messages": [AIMessage(WITHHELD, id=last.id)]}
 
 
 async def _brand_compliant(text: str) -> tuple[bool | None, list[str]]:
@@ -40,7 +57,7 @@ async def _brand_compliant(text: str) -> tuple[bool | None, list[str]]:
     return (verdict.get("compliant") in (True, "true") and not violations), violations
 
 
-@node("output_guard", on_error=_pass_through)
+@node("output_guard", on_error=_withhold)
 async def output_guard(state: AgentState, runtime: Runtime[UserContext]) -> dict:
     last = state["messages"][-1]
     if not isinstance(last, AIMessage) or (state.get("plan") or {}).get("route") == "blocked":

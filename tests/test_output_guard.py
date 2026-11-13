@@ -133,3 +133,18 @@ async def test_clearance_removal_does_not_reveal_which_document(monkeypatch):
     assert out["output_guard"]["actions"] == ["clearance_leak_removed"]  # no document id in the user-visible event
     assert "POL-007" not in out["messages"][0].content
     assert "outside your access" not in out["messages"][0].content  # neutral note
+
+
+async def test_output_guard_fails_closed(monkeypatch):
+    """The last leak barrier: if it crashes, the answer is withheld, not passed through unchecked."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    def broken(*_a, **_k):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(og_node, "check_output", broken)
+    state = {"messages": [HumanMessage("q"), AIMessage("Use key sk-live-123 to connect", id="a1")],
+             "plan": {"route": "retrieve"}}
+    out = await og_node.output_guard(state, SimpleNamespace(context=UserContext("u", "viewer", ("public",))))
+    assert out["messages"][0].content == og_node.WITHHELD and out["messages"][0].id == "a1"
+    assert out["output_guard"]["checked"] is False and out["errors"][0]["node"] == "output_guard"
