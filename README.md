@@ -9,6 +9,7 @@ Multi-agent LangGraph backend (FastAPI), Streamlit UI, Pinecone hybrid search, L
 
 - Architecture and diagrams: [`docs/architecture.md`](docs/architecture.md)
 - Assumptions and decisions: [`docs/decisions.md`](docs/decisions.md)
+- Agents, state, memory, streaming, tracing: [`docs/agents.md`](docs/agents.md)
 - Retrieval (hybrid search, ingestion): [`docs/retrieval.md`](docs/retrieval.md)
 - Logging: [`docs/logging.md`](docs/logging.md)
 - Brand guardrails: [`docs/brand_guardrails.md`](docs/brand_guardrails.md)
@@ -31,6 +32,7 @@ python -m venv .venv
 cp .env.example .env                              # fill in keys
 .venv/Scripts/python scripts/smoke_llm.py        # check the LLM gateway (JSON + streaming)
 .venv/Scripts/python scripts/ingest.py           # create index + sync documents (--dry-run, --full)
-.venv/Scripts/uvicorn app.main:app --reload
+.venv/Scripts/uvicorn app.main:app --reload       # API on :8000
+.venv/Scripts/streamlit run ui/streamlit_app.py  # UI on :8501
 .venv/Scripts/pytest
 ```
