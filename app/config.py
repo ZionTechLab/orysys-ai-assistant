@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     llm_model_fast: str = "orysys-fast"
     llm_timeout_seconds: float = 20  # fail fast: a hung gateway backend is retried or falls back
     llm_max_retries: int = 2
+    llm_long_timeout_seconds: float = 120  # research plans: reasoning models may think for ~60 s
 
     # Fallback LLM (direct provider, used when the gateway is down)
     fallback_llm_base_url: str = ""

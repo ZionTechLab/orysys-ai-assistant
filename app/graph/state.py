@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal, TypedDict
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
 
-Route = Literal["retrieve", "chitchat"]
+Route = Literal["retrieve", "research", "chitchat"]
 
 
 @dataclass(frozen=True)
@@ -61,15 +61,64 @@ def _append(old: list | None, new: list | None) -> list:
     return (old or []) + (new or [])
 
 
+def _merge_dict(old: dict | None, new: dict | None) -> dict:
+    """Parallel workers may each set a flag; merge instead of overwrite. An empty dict resets."""
+    if new == {}:
+        return {}
+    return {**(old or {}), **(new or {})}
+
+
+def _findings(old: list | None, new: list | None) -> list:
+    """Findings from parallel research workers are appended – but only within one turn.
+
+    Each finding carries the turn id. When findings of a new turn arrive, those of
+    older turns are dropped, so the checkpoint does not grow turn after turn.
+    """
+    if not new:
+        return old or []
+    turn = new[0]["turn_id"]
+    return [f for f in (old or []) if f.get("turn_id") == turn] + new
+
+
+class Finding(TypedDict, total=False):
+    """What a research worker extracted from one document."""
+
+    turn_id: str
+    doc_id: str
+    title: str
+    date: str
+    summary: str
+    cause_category: str
+    cause: str
+    impact: str
+    citations: list[str]
+    sources: list[dict]  # sections the worker read: chunk_id, title, section, text (capped)
+    batch_no: int
+    error: str  # set instead of the fields above when the document could not be analysed
+
+
+class Research(TypedDict, total=False):
+    turn_id: str
+    question: str
+    plan_code: str
+    plan_attempts: int
+    used_fallback: bool
+    doc_ids: list[str]
+    batches: list[list[str]]
+    themes: list[dict]  # filled by the aggregator: theme, doc_ids, count, explanation
+
+
 class AgentState(TypedDict, total=False):
     # Conversation – appended, persisted across turns
     messages: Annotated[list[AnyMessage], add_messages]
     # Per-turn working data – replaced every turn
     plan: Annotated[Plan, _replace]
     evidence: Annotated[list[Evidence], _replace]
+    research: Annotated[Research, _replace]
+    findings: Annotated[list[Finding], _findings]
     # Failures recorded by nodes instead of crashing the graph
     errors: Annotated[list[NodeError], _append]
-    degraded: Annotated[dict[str, bool], _replace]
+    degraded: Annotated[dict[str, bool], _merge_dict]
 
 
 def new_turn_state(question: str) -> dict:
@@ -80,6 +129,7 @@ def new_turn_state(question: str) -> dict:
         "messages": [HumanMessage(question)],
         "plan": {},
         "evidence": [],
+        "research": {},
         "degraded": {},
     }
 

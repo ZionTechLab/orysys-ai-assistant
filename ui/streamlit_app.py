@@ -28,8 +28,12 @@ ss.setdefault("activity", [])  # events of the latest turn
 NODE_LABELS = {
     "supervisor": "Supervisor – understanding the question",
     "retrieval_agent": "Retrieval agent – searching documents",
+    "research_planner": "Research planner – writing a Python search plan",
+    "research_worker": "Research worker – analysing a batch",
+    "research_aggregator": "Research aggregator – combining findings",
     "response_agent": "Response agent – writing the answer",
 }
+QUIET_NODES = {"research_worker", "research_aggregator"}  # their own events are more informative
 
 
 # ---------- API helpers ----------
@@ -87,9 +91,37 @@ def trace_link(run_id: str) -> str | None:
 # ---------- activity panel rendering ----------
 def describe(event: str, d: dict) -> str | None:
     if event == "node_start":
-        return f"▶️ **{NODE_LABELS.get(d['node'], d['node'])}**"
+        return None if d["node"] in QUIET_NODES else f"▶️ **{NODE_LABELS.get(d['node'], d['node'])}**"
     if event == "node_end":
-        return f"✅ {d['node']} done ({d.get('latency_ms', '?')} ms)"
+        return None if d["node"] in QUIET_NODES else f"✅ {d['node']} done ({d.get('latency_ms', '?')} ms)"
+    if event == "rlm_plan":
+        status = (f"✅ valid – {d['documents']} documents in {d['batches']} batches" if d["ok"]
+                  else f"❌ {d.get('error')} – asking the model to repair it")
+        calls = ", ".join(f"{k}×{v}" for k, v in (d.get("catalog_calls") or {}).items() if k != "chars_read")
+        code = f"\n```python\n{d['code']}\n```" if d.get("code") else ""
+        return f"🧪 Plan attempt {d['attempt']}: {status}  \nSandbox: {d.get('lines_executed', 0)} lines, {calls or '-'}{code}"
+    if event == "rlm_fallback":
+        return f"↩️ No valid plan – {d.get('documents', 0)} documents selected by search instead"
+    if event == "rlm_batches":
+        batches = " | ".join(", ".join(b) for b in d.get("batches", []))
+        return f"📦 {d['documents']} documents → {len(d.get('batches', []))} parallel workers: {batches}"
+    if event == "rlm_recurse":
+        return f"🔁 Batch {d['batch_no']} too large – split into {d['split']} for sub-workers (depth {d['depth'] + 1})"
+    if event == "rlm_worker":
+        extra = ""
+        if d.get("not_relevant"):
+            extra += f" · not relevant: {', '.join(d['not_relevant'])}"
+        if d.get("failed"):
+            extra += f" · ⚠️ failed: {', '.join(d['failed'])}"
+        return (f"👷 Worker {d['batch_no']}: {', '.join(d['documents'])} – read {d['sections_read']} sections "
+                f"({d['chars_read']} chars), {d['findings']} findings{extra}")
+    if event == "rlm_waiting":
+        return f"⏳ Aggregator waiting: {d['covered']}/{d['expected']} documents done"
+    if event == "rlm_aggregate":
+        themes = "  \n".join(f"• **{t['theme']}** × {t['count']} ({', '.join(t['doc_ids'])})" for t in d["themes"])
+        skipped = f"  \nNot relevant: {', '.join(d['not_relevant'])}" if d.get("not_relevant") else ""
+        failed = f"  \n⚠️ Not analysed: {', '.join(d['failed'])}" if d.get("failed") else ""
+        return f"🧩 Themes from {d['analysed']} documents (counted in code):  \n{themes}{skipped}{failed}"
     if event == "node_error":
         return f"⚠️ {d['node']} failed ({d.get('error_type')}) – continuing with fallback"
     if event == "route_selected":

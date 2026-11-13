@@ -18,20 +18,21 @@ from app.config import get_settings
 Tier = Literal["strong", "fast"]
 
 
-def _gateway_llm(model: str, temperature: float, streaming: bool) -> ChatOpenAI:
+def _gateway_llm(model: str, temperature: float, streaming: bool, long: bool) -> ChatOpenAI:
     s = get_settings()
     return ChatOpenAI(
         base_url=s.llm_base_url,
         api_key=s.llm_api_key.get_secret_value() or "not-set",
         model=model,
         temperature=temperature,
-        timeout=s.llm_timeout_seconds,
-        max_retries=s.llm_max_retries,  # retries with backoff inside the OpenAI client
+        # Short calls (routing, guards) fail fast; long generations (research plans) get more time.
+        timeout=s.llm_long_timeout_seconds if long else s.llm_timeout_seconds,
+        max_retries=1 if long else s.llm_max_retries,  # retries with backoff inside the OpenAI client
         streaming=streaming,
     )
 
 
-def _fallback_llm(temperature: float, streaming: bool) -> ChatOpenAI | None:
+def _fallback_llm(temperature: float, streaming: bool, long: bool) -> ChatOpenAI | None:
     """Direct provider used when the gateway itself is down. Optional."""
     s = get_settings()
     if not (s.fallback_llm_base_url and s.fallback_llm_model and s.fallback_llm_api_key.get_secret_value()):
@@ -41,17 +42,19 @@ def _fallback_llm(temperature: float, streaming: bool) -> ChatOpenAI | None:
         api_key=s.fallback_llm_api_key.get_secret_value(),
         model=s.fallback_llm_model,
         temperature=temperature,
-        timeout=s.llm_timeout_seconds,
+        timeout=s.llm_long_timeout_seconds if long else s.llm_timeout_seconds,
         max_retries=1,
         streaming=streaming,
     )
 
 
 @lru_cache
-def get_llm(tier: Tier = "strong", temperature: float = 0.0, streaming: bool = False) -> BaseChatModel:
+def get_llm(tier: Tier = "strong", temperature: float = 0.0, streaming: bool = False,
+            long: bool = False) -> BaseChatModel:
+    """long=True for calls that generate a lot (e.g. research plans with a reasoning model)."""
     s = get_settings()
     model = s.llm_model_strong if tier == "strong" else s.llm_model_fast
-    primary = _gateway_llm(model, temperature, streaming)
-    fallback = _fallback_llm(temperature, streaming)
+    primary = _gateway_llm(model, temperature, streaming, long)
+    fallback = _fallback_llm(temperature, streaming, long)
     # with_fallbacks: if the gateway call fails after its retries, the same request goes to the fallback.
     return primary.with_fallbacks([fallback]) if fallback else primary

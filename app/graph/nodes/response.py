@@ -38,6 +38,8 @@ def _notes(state: AgentState) -> str:
     degraded = state.get("degraded") or {}
     if degraded.get("retrieval_unavailable"):
         return "\nNOTE: document search is unavailable right now. Tell the user plainly that you could not search."
+    if degraded.get("research_unavailable"):
+        return "\nNOTE: the multi-document research could not be completed. Tell the user plainly."
     return ""
 
 
@@ -49,7 +51,13 @@ async def response_agent(state: AgentState, runtime: Runtime[UserContext]) -> di
     if plan.get("route") == "chitchat":
         system = prompts.CHITCHAT
     else:
-        system = f"{prompts.RESPONSE}{_notes(state)}\n\nDocuments:\n{_documents_block(state.get('evidence', []))}"
+        addendum = ""
+        if plan.get("route") == "research":
+            from app.graph.nodes.research import research_block
+
+            addendum = prompts.RESEARCH_RESPONSE_ADDENDUM.format(research_block=research_block(state))
+        system = (f"{prompts.RESPONSE}{_notes(state)}{addendum}\n\n"
+                  f"Documents:\n{_documents_block(state.get('evidence', []))}")
 
     emit("response_generation", route=plan.get("route"), evidence=len(state.get("evidence", [])))
     # Streaming model: tokens reach the UI through LangGraph's "messages" stream as they are generated.

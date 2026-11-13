@@ -34,7 +34,7 @@ from app.rlm.catalog import Catalog, CatalogError
 
 MAX_CODE_CHARS = 4000
 MAX_LINES_EXECUTED = 20_000
-MAX_SECONDS = 5.0
+MAX_SECONDS = 20.0  # includes search() network time; the line budget stops runaway loops
 MAX_RANGE = 10_000
 MAX_INT_LITERAL = 100_000
 MAX_RESULT_CHARS = 12_000
