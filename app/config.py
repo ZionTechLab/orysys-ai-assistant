@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     llm_model_strong: str = "orysys-fast"
     llm_model_fast: str = "orysys-fast"
     llm_timeout_seconds: float = 60
+    llm_max_retries: int = 2
 
     # Fallback LLM (direct provider, used when the gateway is down)
     fallback_llm_base_url: str = ""
@@ -31,6 +32,17 @@ class Settings(BaseSettings):
     # Pinecone
     pinecone_api_key: SecretStr = SecretStr("")
     pinecone_index: str = "orysys-kb"
+    pinecone_cloud: str = "aws"
+    pinecone_region: str = "us-east-1"
+    embed_model: str = "llama-text-embed-v2"
+    embed_dimension: int = 1024
+
+    # Retrieval
+    docs_dir: str = "data/docs"
+    bm25_path: str = "data/bm25.json"
+    hybrid_alpha: float = 0.6  # 1.0 = dense only, 0.0 = keyword (BM25) only
+    retrieval_top_k: int = 8
+    retrieval_timeout_seconds: float = 10.0
 
     # LangSmith
     langsmith_api_key: SecretStr = SecretStr("")

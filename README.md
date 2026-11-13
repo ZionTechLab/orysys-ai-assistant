@@ -5,7 +5,13 @@ Multi-agent LangGraph backend (FastAPI), Streamlit UI, Pinecone hybrid search, L
 
 > All documents in `data/docs/` are **fictional sample data** and are not real Commercial Bank of Ceylon information.
 
-*Full README (setup, architecture, design decisions) – in progress. See `docs/decisions.md`.*
+*Full README (setup, architecture, design decisions) – in progress.*
+
+- Architecture and diagrams: [`docs/architecture.md`](docs/architecture.md)
+- Assumptions and decisions: [`docs/decisions.md`](docs/decisions.md)
+- Retrieval (hybrid search, ingestion): [`docs/retrieval.md`](docs/retrieval.md)
+- Logging: [`docs/logging.md`](docs/logging.md)
+- Brand guardrails: [`docs/brand_guardrails.md`](docs/brand_guardrails.md)
 
 ## Demo users
 
@@ -23,6 +29,8 @@ Hardcoded users (brief "Option A"). Demo only – passwords are stored as bcrypt
 python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt   # Windows; use .venv/bin/pip on Linux/macOS
 cp .env.example .env                              # fill in keys
+.venv/Scripts/python scripts/smoke_llm.py        # check the LLM gateway (JSON + streaming)
+.venv/Scripts/python scripts/ingest.py           # create Pinecone index, load documents
 .venv/Scripts/uvicorn app.main:app --reload
 .venv/Scripts/pytest
 ```

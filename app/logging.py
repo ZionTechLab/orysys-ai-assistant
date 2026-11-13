@@ -55,7 +55,7 @@ def configure_logging(level: str = "INFO", fmt: str = "json") -> None:
     root.handlers = [handler]
     root.setLevel(level.upper())
     # httpx logs every outbound URL at INFO; keep it at WARNING to avoid noise.
-    for noisy in ("httpx", "httpx2", "httpcore"):
+    for noisy in ("httpx", "httpx2", "httpcore", "pinecone"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     # Our middleware logs requests; uvicorn's access log would duplicate them.
     logging.getLogger("uvicorn.access").handlers = []
