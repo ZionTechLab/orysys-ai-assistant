@@ -5,7 +5,6 @@ Every error response has the same shape so the UI can show it consistently:
 Internal details (stack traces, provider messages) are logged, never returned.
 """
 
-import logging
 import uuid
 
 from fastapi import FastAPI, Request
@@ -13,7 +12,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-logger = logging.getLogger(__name__)
+from app.logging import get_logger
+
+log = get_logger(__name__)
 
 
 class AppError(Exception):
@@ -68,7 +69,7 @@ def _error_body(code: str, message: str, request: Request, details: list | None 
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
-        logger.warning("app_error code=%s message=%s", exc.code, exc.message)
+        log.warning("app_error", code=exc.code, status=exc.status_code, message=exc.message)
         headers = {}
         if isinstance(exc, RateLimitedError):
             headers["Retry-After"] = str(exc.retry_after_seconds)
@@ -96,7 +97,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("unhandled_error")
+        log.error("unhandled_error", error_type=type(exc).__name__, exc_info=exc)
         return JSONResponse(
             status_code=500,
             content=_error_body(AppError.code, AppError.message, request),

@@ -9,12 +9,15 @@ from enum import Enum
 
 import bcrypt
 import jwt
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from app.config import get_settings
 from app.errors import AuthenticationError
+from app.logging import bind_context, get_logger
+
+log = get_logger(__name__)
 
 JWT_ALGORITHM = "HS256"
 TOKEN_TTL = timedelta(hours=8)
@@ -75,7 +78,9 @@ def authenticate(username: str, password: str) -> User:
     hashed = record.password_hash if record else _DUMMY_HASH
     password_ok = bcrypt.checkpw(password.encode(), hashed.encode())
     if not record or not password_ok:
+        log.warning("login_failed", username=username, reason="unknown_user" if not record else "bad_password")
         raise AuthenticationError("Invalid username or password.")
+    log.info("login_succeeded", user_id=record.user.user_id, role=record.user.role.value)
     return record.user
 
 
@@ -114,9 +119,16 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> User:
     """FastAPI dependency: every protected endpoint gets the logged-in user from here."""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise AuthenticationError()
-    return decode_token(credentials.credentials)
+    user = decode_token(credentials.credentials)
+    # From here on, every log line in this request carries the user.
+    bind_context(user_id=user.user_id, role=user.role.value)
+    # Also kept on the request so the HTTP middleware can add it to the request log line
+    # (the middleware runs outside the endpoint's context).
+    request.state.user_id, request.state.role = user.user_id, user.role.value
+    return user

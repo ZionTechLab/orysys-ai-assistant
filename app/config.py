@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "ComBank Knowledge Assistant"
     app_env: str = "dev"
     log_level: str = "INFO"
+    log_format: str = "json"  # "json" or "console"
     jwt_secret: SecretStr = SecretStr("change-me")
 
     # LLM gateway (9router, OpenAI-compatible)
