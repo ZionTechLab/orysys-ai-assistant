@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr = SecretStr("")
     llm_model_strong: str = "orysys-fast"
     llm_model_fast: str = "orysys-fast"
-    llm_timeout_seconds: float = 60
+    llm_timeout_seconds: float = 20  # fail fast: a hung gateway backend is retried or falls back
     llm_max_retries: int = 2
 
     # Fallback LLM (direct provider, used when the gateway is down)
@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     bm25_path: str = "data/bm25.json"
     hybrid_alpha: float = 0.6  # 1.0 = dense only, 0.0 = keyword (BM25) only
     retrieval_top_k: int = 8
+    retrieval_min_score: float = 0.25  # hits below this are not used as evidence
+    memory_db_path: str = "data/memory.db"
     retrieval_timeout_seconds: float = 10.0
 
     # LangSmith

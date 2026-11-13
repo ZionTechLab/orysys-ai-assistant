@@ -101,3 +101,15 @@ class PineconeStore:
         if self._client is not None:
             await self._client.close()
         self._index = self._client = None
+
+    async def reset(self) -> None:
+        """Drop clients (and their connection pools) so the next call reconnects. Never raises."""
+        async with self._lock:
+            index, client = self._index, self._client
+            self._index = self._client = None
+        for c in (index, client):
+            try:
+                if c is not None:
+                    await asyncio.wait_for(c.close(), timeout=2)
+            except Exception:  # noqa: BLE001 – closing a broken client may itself fail
+                pass

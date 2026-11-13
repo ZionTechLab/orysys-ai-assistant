@@ -13,6 +13,8 @@ import time
 from dataclasses import dataclass
 from datetime import date
 
+from langsmith import traceable
+
 from app.config import get_settings
 from app.errors import UpstreamError
 from app.logging import get_logger
@@ -85,11 +87,38 @@ def _namespaces(f: SearchFilters | None) -> list[str]:
     return list(NAMESPACES)
 
 
+def _trace_inputs(inputs: dict) -> dict:
+    """What LangSmith shows as the retriever input (drop `self`, show the filters)."""
+    f = inputs.get("filters")
+    return {
+        "query": inputs.get("query"),
+        "clearance": inputs.get("clearance"),
+        "filters": vars(f) if f else None,
+        "top_k": inputs.get("top_k"),
+        "alpha": inputs.get("alpha"),
+    }
+
+
+def _trace_outputs(hits) -> dict:
+    """LangSmith renders retriever runs as a document list (page_content + metadata)."""
+    hits = hits if isinstance(hits, list) else hits.get("output", [])
+    return {
+        "documents": [
+            {"page_content": h.text, "type": "Document",
+             "metadata": {"chunk_id": h.chunk_id, "score": h.score, "access_level": h.access_level,
+                          "department": h.department, "created_date": h.created_date}}
+            for h in hits
+        ]
+    }
+
+
 class HybridRetriever:
     def __init__(self, store: PineconeStore | None = None) -> None:
         self._s = get_settings()
         self._store = store or PineconeStore()
 
+    @traceable(run_type="retriever", name="hybrid_search", process_inputs=_trace_inputs,
+               process_outputs=_trace_outputs)
     async def search(
         self,
         query: str,
@@ -104,27 +133,32 @@ class HybridRetriever:
         metadata_filter = build_filter(clearance, filters)
         start = time.perf_counter()
 
-        try:
+        async def once() -> list[list[dict]]:
             dense = (await self._store.embed([query], input_type="query"))[0]
             sparse = get_bm25().encode_queries(query)
-            dense, sparse = scale_hybrid(dense, sparse, alpha)
-            sparse_arg = sparse if sparse["indices"] else None
-
+            dense_s, sparse_s = scale_hybrid(dense, sparse, alpha)
+            sparse_arg = sparse_s if sparse_s["indices"] else None
             # Query every namespace in parallel, then merge by combined score.
-            results = await asyncio.wait_for(
-                asyncio.gather(
-                    *(
-                        self._store.query(
-                            namespace=ns, dense=dense, sparse=sparse_arg, top_k=top_k, metadata_filter=metadata_filter
-                        )
-                        for ns in namespaces
-                    )
-                ),
-                timeout=self._s.retrieval_timeout_seconds,
-            )
-        except (asyncio.TimeoutError, OSError) as exc:
-            log.warning("retrieval_failed", error_type=type(exc).__name__, namespaces=namespaces)
-            raise UpstreamError("Document search is unavailable.") from exc
+            return await asyncio.gather(*(
+                self._store.query(namespace=ns, dense=dense_s, sparse=sparse_arg, top_k=top_k,
+                                  metadata_filter=metadata_filter)
+                for ns in namespaces
+            ))
+
+        # One timeout around the whole search (embedding + queries). On a timeout or a
+        # connection error (e.g. pooled connections gone stale while idle) the Pinecone
+        # client is recreated and the search retried once with fresh connections.
+        for attempt in (1, 2):
+            try:
+                results = await asyncio.wait_for(once(), timeout=self._s.retrieval_timeout_seconds)
+                break
+            except ValueError:
+                raise  # bad filters / arguments – a bug, not an outage
+            except Exception as exc:  # noqa: BLE001 – any transport/SDK failure is treated as "search down"
+                log.warning("retrieval_failed", attempt=attempt, error_type=type(exc).__name__, namespaces=namespaces)
+                await self._store.reset()
+                if attempt == 2:
+                    raise UpstreamError("Document search is unavailable.") from exc
 
         matches = sorted((m for ns_matches in results for m in ns_matches), key=lambda m: m["score"], reverse=True)
         hits = [_to_hit(m) for m in matches[:top_k]]
