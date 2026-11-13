@@ -27,3 +27,8 @@ def get_bm25() -> BM25Encoder:
     if not path.exists():
         raise FileNotFoundError(f"{path} not found – run scripts/ingest.py first")
     return BM25Encoder().load(str(path))
+
+
+def reload_bm25() -> None:
+    """Drop the cached encoder so the next query loads the newly fitted vocabulary."""
+    get_bm25.cache_clear()

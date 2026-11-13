@@ -30,7 +30,7 @@ python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt   # Windows; use .venv/bin/pip on Linux/macOS
 cp .env.example .env                              # fill in keys
 .venv/Scripts/python scripts/smoke_llm.py        # check the LLM gateway (JSON + streaming)
-.venv/Scripts/python scripts/ingest.py           # create Pinecone index, load documents
+.venv/Scripts/python scripts/ingest.py           # create index + sync documents (--dry-run, --full)
 .venv/Scripts/uvicorn app.main:app --reload
 .venv/Scripts/pytest
 ```

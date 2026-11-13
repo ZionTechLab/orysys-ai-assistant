@@ -1,68 +1,45 @@
-"""Ingest data/docs into Pinecone (hybrid: dense + BM25 sparse), one namespace per department.
+"""Sync data/docs into Pinecone (hybrid: dense + BM25 sparse), one namespace per department.
 
-Run: .venv/Scripts/python scripts/ingest.py
-Idempotent: creates the index if missing, record ids are chunk ids so re-running overwrites.
+Run:
+  .venv/Scripts/python scripts/ingest.py             # sync: only new / changed / deleted documents
+  .venv/Scripts/python scripts/ingest.py --dry-run   # show what would change, change nothing
+  .venv/Scripts/python scripts/ingest.py --full      # re-embed every document
+
+See app/retrieval/sync.py and decision A11.
 """
 
+import argparse
 import asyncio
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import get_settings  # noqa: E402
-from app.logging import configure_logging, get_logger  # noqa: E402
-from app.retrieval.bm25 import fit_bm25  # noqa: E402
-from app.retrieval.loader import load_corpus  # noqa: E402
-from app.retrieval.pinecone_store import PineconeStore  # noqa: E402
-
-log = get_logger("ingest")
+from app.logging import configure_logging  # noqa: E402
+from app.retrieval.sync import sync_index  # noqa: E402
 
 
-async def main() -> None:
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--dry-run", action="store_true", help="report changes without writing")
+    parser.add_argument("--full", action="store_true", help="re-embed all documents")
+    args = parser.parse_args()
+
     s = get_settings()
     configure_logging(s.log_level, "console")
+    report = asyncio.run(sync_index(dry_run=args.dry_run, force=args.full))
 
-    # 1. Load and chunk
-    docs, chunks = load_corpus(s.docs_dir)
-    log.info("corpus_loaded", documents=len(docs), chunks=len(chunks))
-
-    # 2. Sparse: fit BM25 on our corpus and save the vocabulary for query time
-    bm25 = fit_bm25([c.embed_text for c in chunks], s.bm25_path)
-    sparse = bm25.encode_documents([c.embed_text for c in chunks])
-    log.info("bm25_fitted", path=s.bm25_path)
-
-    # 3. Dense: Pinecone Inference embeddings
-    store = PineconeStore()
-    try:
-        await store.ensure_index()
-        dense = await store.embed([c.embed_text for c in chunks], input_type="passage")
-        log.info("embedded", model=s.embed_model, vectors=len(dense))
-
-        # 4. Group by namespace (department) and upsert
-        by_ns: dict[str, list[dict]] = defaultdict(list)
-        for chunk, d_vec, s_vec in zip(chunks, dense, sparse):
-            record = {"id": chunk.chunk_id, "values": d_vec, "metadata": chunk.metadata()}
-            if s_vec["indices"]:
-                record["sparse_values"] = s_vec
-            by_ns[chunk.doc.department].append(record)
-
-        await asyncio.gather(*(store.upsert(recs, ns) for ns, recs in by_ns.items()))
-        for ns, recs in sorted(by_ns.items()):
-            log.info("namespace_upserted", namespace=ns, records=len(recs))
-
-        # Serverless indexes are eventually consistent; wait until counts match.
-        expected = {ns: len(recs) for ns, recs in by_ns.items()}
-        for _ in range(30):
-            counts = await store.namespace_counts()
-            if all(counts.get(ns, 0) >= n for ns, n in expected.items()):
-                break
-            await asyncio.sleep(2)
-        log.info("ingest_complete", namespaces=await store.namespace_counts())
-    finally:
-        await store.close()
+    r = report.summary()
+    print("\nSync" + (" (dry run)" if report.dry_run else "") + f" finished in {r['seconds']}s")
+    print(f"  added     : {r['added'] or '-'}")
+    print(f"  updated   : {r['updated'] or '-'}")
+    print(f"  deleted   : {r['deleted'] or '-'}")
+    print(f"  unchanged : {r['unchanged']} documents")
+    print(f"  chunks    : {r['chunks_upserted']} upserted, {r['chunks_deleted']} deleted, "
+          f"{r['sparse_refreshed']} sparse refreshed, BM25 re-fit: {r['bm25_refit']}")
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(main())
