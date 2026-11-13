@@ -8,16 +8,7 @@ from app.config import get_settings
 from app.graph.events import emit
 from app.graph.nodes.common import node
 from app.graph.state import AgentState, UserContext
-from app.retrieval.hybrid import HybridRetriever, SearchFilters
-
-_retriever: HybridRetriever | None = None
-
-
-def get_retriever() -> HybridRetriever:
-    global _retriever
-    if _retriever is None:
-        _retriever = HybridRetriever()
-    return _retriever
+from app.retrieval.hybrid import SearchFilters, get_retriever
 
 
 def _fallback(_state: AgentState, _exc: Exception) -> dict:

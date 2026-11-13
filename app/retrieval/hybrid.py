@@ -174,6 +174,20 @@ class HybridRetriever:
         return hits
 
 
+_shared: HybridRetriever | None = None
+
+
+def get_retriever() -> HybridRetriever:
+    """One retriever (one Pinecone client and connection pool) per process, shared by all agents.
+
+    Reusing warm connections matters: opening new ones is the slow, failure-prone part.
+    """
+    global _shared
+    if _shared is None:
+        _shared = HybridRetriever()
+    return _shared
+
+
 def _filter_keys(flt: dict) -> set[str]:
     if "$and" in flt:
         return {k for clause in flt["$and"] for k in clause}
