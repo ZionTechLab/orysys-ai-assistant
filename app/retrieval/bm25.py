@@ -32,3 +32,6 @@ def get_bm25() -> BM25Encoder:
 def reload_bm25() -> None:
     """Drop the cached encoder so the next query loads the newly fitted vocabulary."""
     get_bm25.cache_clear()
+    from app.retrieval.local_index import reload_local_index  # lazy: avoids an import cycle
+
+    reload_local_index()

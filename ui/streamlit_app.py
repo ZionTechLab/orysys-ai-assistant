@@ -116,6 +116,8 @@ def describe(event: str, d: dict) -> str | None:
             return "🧯 Output guard changed the answer:  \n" + "  \n".join(f"– {a}" for a in d["actions"])
         markers = f" (markers: {', '.join(d['markers'])})" if d.get("markers") else ""
         return f"🧯 Output guard: no issues – brand check {d.get('brand')}{markers}"
+    if event == "retrieval_fallback":
+        return "🛟 Vector search unavailable – **fallback to local keyword search** (answer marked as degraded)"
     if event == "content_flagged":
         return f"🧹 Retrieved text cleaned: `{d['chunk_id']}` – {', '.join(d['flags'])}"
     if event == "validation":
@@ -210,6 +212,21 @@ with st.sidebar:
     st.success(f"{u['display_name']}  \nRole: **{u['role']}**")
     st.caption(f"Can read: {', '.join(u['clearance'])}")
     st.caption(f"Conversation: `{ss.thread_id}`")
+
+    if u["role"] == "admin":
+        # Demo of graceful degradation: simulate dependency outages (admin only, off by default).
+        with st.expander("🧪 Simulate outages (demo)"):
+            try:
+                current = httpx.get(f"{API_URL}/admin/faults", headers=auth_headers(), timeout=TIMEOUT).json()
+            except httpx.HTTPError:
+                current = {}
+            labels = {"pinecone": "Pinecone (vector DB) down", "llm": "LLM gateway down", "mcp": "MCP server down"}
+            wanted = {k: st.checkbox(v, value=bool(current.get(k)), key=f"fault_{k}") for k, v in labels.items()}
+            if wanted != {k: bool(current.get(k)) for k in labels}:
+                httpx.post(f"{API_URL}/admin/faults", json=wanted, headers=auth_headers(), timeout=TIMEOUT)
+                st.rerun()
+            if any(wanted.values()):
+                st.warning("Simulated outage active")
     c1, c2 = st.columns(2)
     if c1.button("New chat"):
         ss.thread_id, ss.messages, ss.activity, ss.pending = uuid.uuid4().hex[:12], [], [], None

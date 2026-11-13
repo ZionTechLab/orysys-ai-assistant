@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from pinecone import PineconeAsyncio, ServerlessSpec
 
+from app import faults
 from app.config import get_settings
 from app.logging import get_logger
 
@@ -55,6 +56,7 @@ class PineconeStore:
             return self._index
 
     async def embed(self, texts: list[str], input_type: Literal["passage", "query"]) -> list[list[float]]:
+        faults.check("pinecone")
         pc = await self._get_client()
         vectors: list[list[float]] = []
         for start in range(0, len(texts), EMBED_BATCH):
@@ -79,6 +81,7 @@ class PineconeStore:
         top_k: int,
         metadata_filter: dict | None,
     ) -> list[dict]:
+        faults.check("pinecone")
         idx = await self.index()
         resp = await idx.query(
             namespace=namespace,

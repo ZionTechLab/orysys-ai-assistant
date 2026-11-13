@@ -81,8 +81,12 @@ async def validator(state: AgentState, runtime: Runtime[UserContext]) -> Command
     last = state["messages"][-1]
     attempt = (state.get("validation") or {}).get("attempt", 0)
 
-    if route in ("blocked", "chitchat") or not isinstance(last, AIMessage):
-        result = {"ok": True, "action": "accepted", "attempt": attempt, "problems": [], "grounding": "not needed"}
+    llm_down = bool((state.get("degraded") or {}).get("llm_unavailable"))
+    if route in ("blocked", "chitchat") or llm_down or not isinstance(last, AIMessage):
+        # Fixed refusals, greetings and the no-LLM fallback message are not model-written answers:
+        # retrying them would only call the unavailable model again.
+        grounding = "not needed (language service unavailable)" if llm_down else "not needed"
+        result = {"ok": True, "action": "accepted", "attempt": attempt, "problems": [], "grounding": grounding}
         emit("validation", **result)
         return Command(goto="output_guard", update={"validation": result})
 

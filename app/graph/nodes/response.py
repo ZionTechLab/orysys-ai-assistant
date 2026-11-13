@@ -21,8 +21,24 @@ FALLBACK_ANSWER = (
 )
 
 
-def _fallback(_state: AgentState, _exc: Exception) -> dict:
-    return {"messages": [AIMessage(FALLBACK_ANSWER)]}
+def _fallback(state: AgentState, _exc: Exception) -> dict:
+    """The LLM is unavailable. If documents were already found, list them (extractive, no model needed) –
+    still useful to the user – otherwise apologise. Marks the turn so the validator does not retry."""
+    evidence = state.get("evidence") or []
+    if evidence:
+        docs: dict[str, dict] = {}
+        for e in evidence[:8]:
+            d = docs.setdefault(e["doc_id"], {"title": e["title"], "sections": []})
+            d["sections"].append(f'{e["section"]} [{e["chunk_id"]}]')
+        lines = [f'- **{doc_id}** – {d["title"]}: {", ".join(d["sections"])}' for doc_id, d in docs.items()]
+        text = ("I can't write a full answer right now because the language service is unavailable, "
+                "but these documents look relevant to your question:\n\n" + "\n".join(lines) +
+                "\n\nPlease try again in a few minutes for a written answer.")
+    else:
+        text = FALLBACK_ANSWER
+    retry_of = state["messages"][-1] if state.get("messages") and isinstance(state["messages"][-1], AIMessage) else None
+    message = AIMessage(text, id=retry_of.id) if retry_of is not None else AIMessage(text)
+    return {"messages": [message], "degraded": {"llm_unavailable": True}}
 
 
 def _documents_block(evidence: list[dict]) -> str:
@@ -40,6 +56,9 @@ def _notes(state: AgentState) -> str:
     degraded = state.get("degraded") or {}
     if degraded.get("retrieval_unavailable"):
         return "\nNOTE: document search is unavailable right now. Tell the user plainly that you could not search."
+    if degraded.get("pinecone_down"):
+        return ("\nNOTE: the main (semantic) search was unavailable; documents come from a simpler keyword search. "
+                "Mention briefly that the answer may be less complete.")
     if degraded.get("research_unavailable"):
         return "\nNOTE: the multi-document research could not be completed. Tell the user plainly."
     return ""

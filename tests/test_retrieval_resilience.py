@@ -53,7 +53,24 @@ async def test_recovers_after_one_connection_error():
     assert hits and store.resets == 1 and store.calls == 2
 
 
-async def test_two_failures_raise_upstream_error():
+async def test_two_failures_fall_back_to_local_keyword_search():
+    store = FakeStore(failures=2)
+    hits = await HybridRetriever(store).search("PayBridge circuit breaker timeout", ["public", "internal"])
+    assert store.resets == 2
+    assert hits and all(h.source == "local_bm25" for h in hits)
+    assert hits[0].doc_id in {"INC-2026-021", "INC-2026-062", "INC-2026-095", "RB-003", "MTG-003"}
+
+
+async def test_local_fallback_keeps_the_access_filter():
+    hits = await HybridRetriever(FakeStore(failures=2)).search("executive bonus deferred", ["public", "internal"])
+    assert all(h.access_level in ("public", "internal") for h in hits)
+    assert "POL-007" not in {h.doc_id for h in hits}
+
+
+async def test_two_failures_raise_when_fallback_disabled(monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "retrieval_local_fallback", False)
     store = FakeStore(failures=2)
     with pytest.raises(UpstreamError):
         await HybridRetriever(store).search("q", ["internal"])

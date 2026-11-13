@@ -48,6 +48,7 @@ class Hit:
     document_type: str
     access_level: str
     created_date: str
+    source: str = "pinecone"  # "local_bm25" when served by the fallback index
 
     def citation(self) -> str:
         return f"[{self.chunk_id}]"
@@ -158,6 +159,8 @@ class HybridRetriever:
                 log.warning("retrieval_failed", attempt=attempt, error_type=type(exc).__name__, namespaces=namespaces)
                 await self._store.reset()
                 if attempt == 2:
+                    if self._s.retrieval_local_fallback:
+                        return self._local_fallback(query, clearance, filters, top_k, namespaces, exc)
                     raise UpstreamError("Document search is unavailable.") from exc
 
         matches = sorted((m for ns_matches in results for m in ns_matches), key=lambda m: m["score"], reverse=True)
@@ -172,6 +175,21 @@ class HybridRetriever:
             latency_ms=round((time.perf_counter() - start) * 1000),
         )
         return hits
+
+
+    def _local_fallback(self, query, clearance, filters, top_k, namespaces, exc) -> list[Hit]:
+        """Pinecone is down: keyword search over the same chunks in memory (same access filter)."""
+        from app.retrieval.local_index import get_local_index
+
+        try:
+            results = get_local_index().search(query, list(clearance), filters, top_k=top_k)
+        except Exception as local_exc:  # noqa: BLE001 – both paths failed: report the original outage
+            log.error("retrieval_fallback_failed", error_type=type(local_exc).__name__)
+            raise UpstreamError("Document search is unavailable.") from exc
+        log.warning("retrieval_fallback", reason=type(exc).__name__, hits=len(results), namespaces=namespaces)
+        return [Hit(c.chunk_id, c.doc.doc_id, c.doc.title, c.section, c.text, score, c.doc.department,
+                    c.doc.document_type, c.doc.access_level, c.doc.created_date.isoformat(), source="local_bm25")
+                for c, score in results]
 
 
 _shared: HybridRetriever | None = None

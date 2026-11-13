@@ -13,14 +13,32 @@ from typing import Literal
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
+from app import faults
 from app.config import get_settings
 
 Tier = Literal["strong", "fast"]
 
 
+class GatewayChatModel(ChatOpenAI):
+    """ChatOpenAI that honours the "llm" fault switch – simulates the gateway being down.
+
+    The check is inside generate/stream (not a wrapper), so streaming, callbacks and
+    LangGraph's token stream behave exactly as with the plain model.
+    """
+
+    async def _agenerate(self, *args, **kwargs):
+        faults.check("llm")
+        return await super()._agenerate(*args, **kwargs)
+
+    async def _astream(self, *args, **kwargs):
+        faults.check("llm")
+        async for chunk in super()._astream(*args, **kwargs):
+            yield chunk
+
+
 def _gateway_llm(model: str, temperature: float, streaming: bool, long: bool) -> ChatOpenAI:
     s = get_settings()
-    return ChatOpenAI(
+    return GatewayChatModel(
         base_url=s.llm_base_url,
         api_key=s.llm_api_key.get_secret_value() or "not-set",
         model=model,

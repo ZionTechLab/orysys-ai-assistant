@@ -12,6 +12,7 @@ Multi-agent LangGraph backend (FastAPI), Streamlit UI, Pinecone hybrid search, L
 - Agents, state, memory, streaming, tracing: [`docs/agents.md`](docs/agents.md)
 - Retrieval (hybrid search, ingestion): [`docs/retrieval.md`](docs/retrieval.md)
 - Security, RBAC, approval, audit: [`docs/security.md`](docs/security.md)
+- Resilience, error handling, fault injection: [`docs/resilience.md`](docs/resilience.md)
 - Logging: [`docs/logging.md`](docs/logging.md)
 - Brand guardrails: [`docs/brand_guardrails.md`](docs/brand_guardrails.md)
 

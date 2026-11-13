@@ -38,6 +38,9 @@ async def retrieval_agent(state: AgentState, runtime: Runtime[UserContext]) -> d
     # Clearance comes from the run context (verified JWT), never from the plan the LLM wrote.
     hits = await get_retriever().search(query, list(user.clearance), _filters(plan))
     relevant = [h for h in hits if h.score >= s.retrieval_min_score]
+    fallback = any(h.source == "local_bm25" for h in hits)
+    if fallback:
+        emit("retrieval_fallback", reason="vector search unavailable", source="local_bm25", hits=len(hits))
 
     emit("retrieval", query=query, hits=len(hits), relevant=len(relevant), min_score=s.retrieval_min_score,
          top=[{"chunk_id": h.chunk_id, "score": h.score} for h in relevant[:5]])
@@ -51,4 +54,4 @@ async def retrieval_agent(state: AgentState, runtime: Runtime[UserContext]) -> d
         evidence.append({"chunk_id": h.chunk_id, "doc_id": h.doc_id, "title": h.title, "section": h.section,
                          "text": checked.text, "score": h.score, "document_type": h.document_type,
                          "created_date": h.created_date})
-    return {"evidence": evidence}
+    return {"evidence": evidence, "degraded": {"pinecone_down": True} if fallback else {}}

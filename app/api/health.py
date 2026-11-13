@@ -66,5 +66,8 @@ async def health() -> dict:
         _timed("pinecone", _check_pinecone, s.health_check_timeout_seconds),
         _timed("mcp", _check_mcp, s.health_check_timeout_seconds),
     )
-    overall = "ok" if all(c["status"] == "ok" for c in checks) else "degraded"
-    return {"status": overall, "app": s.app_name, "env": s.app_env, "checks": checks}
+    from app import faults
+
+    simulated = [name for name, on in faults.current().items() if on]
+    overall = "ok" if all(c["status"] == "ok" for c in checks) and not simulated else "degraded"
+    return {"status": overall, "app": s.app_name, "env": s.app_env, "checks": checks, "simulated_faults": simulated}
