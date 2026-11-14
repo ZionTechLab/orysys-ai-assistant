@@ -9,6 +9,7 @@ import json
 import os
 import time
 import uuid
+from datetime import datetime
 
 import httpx
 import streamlit as st
@@ -55,7 +56,10 @@ ss.setdefault("token", None)
 ss.setdefault("user", None)
 ss.setdefault("thread_id", uuid.uuid4().hex[:12])
 ss.setdefault("messages", [])  # [{"role", "content", "citations", "trace"}]
-ss.setdefault("activity", [])  # events of the latest turn
+# One entry per question: number, clock time, label, route, duration and its events with the time since
+# the question was sent – so the activity panel can be grouped by message.
+ss.setdefault("turns", [])
+ss.setdefault("job", None)  # the request being answered: {"path", "payload", "turn", "started"}
 ss.setdefault("pending", None)  # tool call waiting for human approval
 
 NODE_LABELS = {
@@ -233,12 +237,45 @@ def describe(event: str, d: dict) -> str | None:
     return None
 
 
-def render_activity(container, events: list[tuple[str, dict]]) -> None:
+def start_turn(label: str) -> dict:
+    turn = {"no": len(ss.turns) + 1, "label": label, "time": datetime.now().strftime("%H:%M:%S"),
+            "start": time.monotonic(), "events": [], "route": None, "seconds": None}
+    ss.turns.append(turn)
+    return turn
+
+
+def turn_title(t: dict) -> str:
+    label = t["label"] if len(t["label"]) <= 60 else t["label"][:57] + "…"
+    route = f" · {t['route']}" if t.get("route") else ""
+    if t.get("interrupted"):
+        took = " · interrupted"
+    else:
+        took = f" · {t['seconds']:.1f} s" if t.get("seconds") is not None else " · running…"
+    return f"#{t['no']} · {t['time']} · {label}{route}{took}"
+
+
+def render_turn_events(t: dict) -> None:
+    for event, data, at in t["events"]:
+        text = describe(event, data)
+        if text:
+            st.markdown(f"`+{at:.1f}s` {text}")  # time since the question was sent
+
+
+def render_activity(container) -> None:
+    """Latest question open at the top; earlier ones collapsed below, each labelled with its number."""
     with container.container():
-        for event, data in events:
-            text = describe(event, data)
-            if text:
-                st.markdown(text)
+        if not ss.turns:
+            st.caption("Ask a question – every step the agents take will appear here, grouped by question.")
+            return
+        latest, *older = reversed(ss.turns)
+        st.markdown(f"**{turn_title(latest)}**")
+        render_turn_events(latest)
+        if older:
+            st.divider()
+            st.caption("Earlier questions")
+            for t in older:
+                with st.expander(turn_title(t)):
+                    render_turn_events(t)
 
 
 # ---------- sidebar: login ----------
@@ -278,38 +315,54 @@ with st.sidebar:
                 st.warning("Simulated outage active")
     c1, c2 = st.columns(2)
     if c1.button("New chat"):
-        ss.thread_id, ss.messages, ss.activity, ss.pending = uuid.uuid4().hex[:12], [], [], None
+        ss.thread_id, ss.messages, ss.turns, ss.pending, ss.job = uuid.uuid4().hex[:12], [], [], None, None
         st.rerun()
     if c2.button("Log out"):
         for k in ("token", "user"):
             ss[k] = None
-        ss.messages, ss.activity = [], []
+        ss.messages, ss.turns, ss.job = [], [], None
         st.rerun()
 
 # ---------- main layout ----------
 # The chat input is created at page level (not inside the chat column): there Streamlit pins it to the
 # bottom of the window. Inside a column it is drawn inline where the script calls it, so new messages
 # appeared below it and the box ended up between older and newer messages.
-prompt = st.chat_input("Ask about policies, incidents, runbooks…", disabled=bool(ss.pending))
+# While an answer is being generated the input is disabled: Streamlit restarts the script on any input,
+# which used to cut off the answer in progress (it was lost and its activity stayed "running…").
+# (Fixed key and placeholder: changing the placeholder made Streamlit draw a second input box.)
+prompt = st.chat_input("Ask about policies, incidents, runbooks…", key="question",
+                       disabled=bool(ss.job) or bool(ss.pending))
 
 chat_col, panel_col = st.columns([3, 2], gap="large")
 
 with panel_col:
     st.subheader("Agent activity")
     panel = st.empty()
-    render_activity(panel, ss.activity)
+    render_activity(panel)
+
+
+def turn_caption(m: dict) -> None:
+    """Small line under a message: the turn number that matches the activity panel, and the trace link."""
+    parts = [f"#{m['turn']}"] if m.get("turn") else []
+    if m.get("time"):
+        parts.append(m["time"])
+    if m.get("seconds") is not None:
+        parts.append(f"{m['seconds']:.1f} s")
+    if m.get("trace"):
+        parts.append(f"[LangSmith trace]({m['trace']})")
+    if parts:
+        st.caption(" · ".join(parts))
+
 
 with chat_col:
     st.subheader("Chat")
     for m in ss.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
-            if m.get("trace"):
-                st.caption(f"[LangSmith trace]({m['trace']})")
+            turn_caption(m)
 
-    def run_turn(path: str, payload: dict) -> None:
+    def run_turn(path: str, payload: dict, turn: dict) -> None:
         """Stream one turn (new question or resumed run) into the chat and the activity panel."""
-        ss.activity = []
         answer, run_id = "", None
         with st.chat_message("assistant"):
             box = st.empty()
@@ -319,8 +372,12 @@ with chat_col:
                     answer += data["text"]
                     box.markdown(answer + "▌")
                     continue
-                ss.activity.append((event, data))
-                render_activity(panel, ss.activity)
+                turn["events"].append((event, data, time.monotonic() - turn["start"]))
+                if event == "route_selected":
+                    turn["route"] = data.get("route")
+                if event == "done":
+                    turn["seconds"] = time.monotonic() - turn["start"]
+                render_activity(panel)
                 if event == "validation" and data.get("action") == "retry":
                     answer = ""  # the rewritten answer streams in next and replaces this one
                     box.markdown("_Answer failed validation – revising…_")
@@ -339,19 +396,37 @@ with chat_col:
             if ss.pending and not answer:
                 answer = f"✋ This action needs approval: **{ss.pending.get('tool')}** {ss.pending.get('args') or ''}"
             box.markdown(answer)
+            if turn["seconds"] is None:
+                turn["seconds"] = time.monotonic() - turn["start"]
+                render_activity(panel)
             url = trace_link(run_id) if run_id else None
-            if url:
-                st.caption(f"[LangSmith trace]({url})")
-        ss.messages.append({"role": "assistant", "content": answer, "trace": url})
+            message = {"role": "assistant", "content": answer, "trace": url, "turn": turn["no"],
+                       "seconds": turn["seconds"]}
+            turn_caption(message)
+        ss.messages.append(message)
 
-    # A new question: drawn after the history, so the conversation reads top to bottom.
+    # Work is queued in session state and run on the next script run, with the input disabled.
+    # 1) a new question: record it, then rerun so the input shows as disabled while the answer streams
     if prompt:
-        ss.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        run_turn("/chat", {"thread_id": ss.thread_id, "message": prompt})
-        if ss.pending:
-            st.rerun()  # show the approval buttons (and disable the input)
+        turn = start_turn(prompt)
+        ss.messages.append({"role": "user", "content": prompt, "turn": turn["no"], "time": turn["time"]})
+        ss.job = {"path": "/chat", "payload": {"thread_id": ss.thread_id, "message": prompt},
+                  "turn": turn["no"], "started": False}
+        st.rerun()
+
+    # 2) run the queued job; if it had already started, the previous run was cut off (e.g. a sidebar click)
+    job = ss.job
+    if job:
+        turn = ss.turns[job["turn"] - 1]
+        if job["started"]:
+            turn["interrupted"], turn["seconds"] = True, time.monotonic() - turn["start"]
+            ss.messages.append({"role": "assistant", "turn": turn["no"],
+                                "content": "⚠️ This answer was interrupted before it finished. Please ask again."})
+        else:
+            job["started"] = True
+            run_turn(job["path"], job["payload"], turn)
+        ss.job = None
+        st.rerun()  # re-enable the input (or show the approval buttons)
 
     # Human-in-the-loop: a paused run waits here until the user decides.
     if ss.pending:
@@ -362,5 +437,7 @@ with chat_col:
         decision = True if a.button("✅ Approve") else False if r.button("❌ Reject") else None
         if decision is not None:
             ss.pending = None
-            run_turn("/chat/resume", {"thread_id": ss.thread_id, "approved": decision})
+            turn = start_turn(f"{'Approved' if decision else 'Rejected'}: {p.get('tool')}")
+            ss.job = {"path": "/chat/resume", "payload": {"thread_id": ss.thread_id, "approved": decision},
+                      "turn": turn["no"], "started": False}
             st.rerun()
