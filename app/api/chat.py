@@ -60,21 +60,25 @@ def _sse(event: str, data: dict) -> dict:
     return {"event": event, "data": json.dumps(data, default=str)}
 
 
-def _graph_config(user: User, thread_id: str, request_id: str, run_id: uuid.UUID) -> dict:
+def _graph_config(user: User, thread_id: str, request_id: str, run_id: uuid.UUID,
+                  resumes_run_id: str | None = None) -> dict:
+    metadata = {"request_id": request_id, "user_id": user.user_id, "role": user.role.value, "thread_id": thread_id}
+    if resumes_run_id:  # approval: the run that asked for it, so both halves of the turn are found together
+        metadata["resumes_run_id"] = resumes_run_id
     return {
         "configurable": {"thread_id": thread_key(user.user_id, thread_id)},
         # LangSmith: one trace per turn, searchable by request id, user and role.
         "run_id": run_id,
         "run_name": "chat_turn",
-        "tags": [f"role:{user.role.value}"],
-        "metadata": {"request_id": request_id, "user_id": user.user_id, "role": user.role.value,
-                     "thread_id": thread_id},
+        "tags": [f"role:{user.role.value}"] + (["approval_resume"] if resumes_run_id else []),
+        "metadata": metadata,
     }
 
 
-def _context(user: User, request_id: str) -> UserContext:
+def _context(user: User, request_id: str, run_id: uuid.UUID) -> UserContext:
     return UserContext(user_id=user.user_id, role=user.role.value, clearance=tuple(user.clearance),
-                       display_name=user.display_name, request_id=request_id, department=user.department)
+                       display_name=user.display_name, request_id=request_id, department=user.department,
+                       run_id=str(run_id))
 
 
 async def _pending_approval(graph, user: User, thread_id: str) -> dict | None:
@@ -84,18 +88,19 @@ async def _pending_approval(graph, user: User, thread_id: str) -> dict | None:
     return dict(interrupts[0].value) if interrupts else None
 
 
-async def _stream_turn(request: Request, user: User, thread_id: str, graph_input) -> AsyncIterator[dict]:
+async def _stream_turn(request: Request, user: User, thread_id: str, graph_input,
+                       resumes_run_id: str | None = None) -> AsyncIterator[dict]:
     """Run (or resume) the graph and stream its events. Used by /chat and /chat/resume."""
     graph = request.app.state.graph
     request_id = request.state.request_id
     run_id = uuid.uuid4()
     remember_run(run_id, user.user_id)  # so only this user can rate this answer (POST /feedback)
-    config = _graph_config(user, thread_id, request_id, run_id)
+    config = _graph_config(user, thread_id, request_id, run_id, resumes_run_id)
     summary: dict = {"route": None, "citations": []}
     streamed_tokens = 0
 
     try:
-        async for mode, chunk in graph.astream(graph_input, config=config, context=_context(user, request_id),
+        async for mode, chunk in graph.astream(graph_input, config=config, context=_context(user, request_id, run_id),
                                                 stream_mode=["custom", "messages"]):
             if await request.is_disconnected():
                 log.info("client_disconnected")
@@ -166,7 +171,8 @@ async def resume(request: Request, body: ResumeRequest,
         raise PermissionDeniedError("You are not allowed to approve this action.") from None
     log.info("approval_decision", tool=pending.get("tool"), approved=body.approved)
     decision = Command(resume={"approved": body.approved, "by": user.user_id})
-    return EventSourceResponse(_stream_turn(request, user, body.thread_id, decision), ping=15)
+    return EventSourceResponse(_stream_turn(request, user, body.thread_id, decision,
+                                            resumes_run_id=pending.get("run_id")), ping=15)
 
 
 @router.get("/traces/{run_id}")

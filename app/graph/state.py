@@ -24,6 +24,7 @@ class UserContext:
     display_name: str = ""
     request_id: str = ""
     department: str = ""
+    run_id: str = ""  # LangSmith run of this turn; an approval request records it so the resumed run links back
 
 
 class Plan(TypedDict, total=False):

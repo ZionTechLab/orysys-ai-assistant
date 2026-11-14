@@ -25,6 +25,7 @@ from app import faults
 from app.config import get_settings
 from app.security.guards import sanitize_retrieved
 from app.tools.registry import REGISTRY, Tool, ToolContext
+from app.tracing import preview, span
 
 ANALYSTS = frozenset({"analyst", "admin"})
 Department = Literal["payments", "cards", "core-banking", "security", "hr"]
@@ -84,17 +85,22 @@ def _first_error(exc: BaseException) -> BaseException:
 
 
 async def call_mcp(tool: str, arguments: dict, ctx: ToolContext) -> dict:
-    faults.check("mcp")  # demo: simulated outage at the boundary to the real dependency
-    try:
-        async with _open_client(ctx) as client:
-            result = await client.call_tool(tool, arguments)
-    except Exception as exc:  # noqa: BLE001 – connection refused, timeout, 401, protocol error ...
-        cause = _first_error(exc)
-        raise McpUnavailable(f"MCP server unavailable ({type(cause).__name__})") from cause
-    text = "".join(getattr(c, "text", "") for c in result.content or [])
-    if result.is_error:
-        raise McpToolError(text[:200] or "the MCP tool reported an error")
-    return result.structured_content or json.loads(text)
+    # LangSmith: a span inside the tool span, so the trace shows the call going out to the MCP server.
+    with span(f"mcp:{tool}", "tool", inputs={"tool": tool, "arguments": arguments},
+              metadata={"server": get_settings().mcp_server_url}) as run:
+        faults.check("mcp")  # demo: simulated outage at the boundary to the real dependency
+        try:
+            async with _open_client(ctx) as client:
+                result = await client.call_tool(tool, arguments)
+        except Exception as exc:  # noqa: BLE001 – connection refused, timeout, 401, protocol error ...
+            cause = _first_error(exc)
+            raise McpUnavailable(f"MCP server unavailable ({type(cause).__name__})") from cause
+        text = "".join(getattr(c, "text", "") for c in result.content or [])
+        if result.is_error:
+            raise McpToolError(text[:200] or "the MCP tool reported an error")
+        data = result.structured_content or json.loads(text)
+        run.end(outputs={"result": preview(data)})
+    return data
 
 
 def _within_clearance(records: list[dict], clearance: tuple[str, ...]) -> list[dict]:

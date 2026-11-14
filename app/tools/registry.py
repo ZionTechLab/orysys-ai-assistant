@@ -9,7 +9,8 @@ Every tool declares which roles may use it. RBAC is enforced twice:
                 planted by a prompt injection, is denied here.
 
 Arguments are validated with a Pydantic schema before the tool runs; every tool
-call has a timeout; every attempt – allowed or denied – goes to the audit log.
+call has a timeout; every attempt – allowed or denied – goes to the audit log and is a
+LangSmith `tool` span (`tool:<name>`) with its arguments, status and RBAC result.
 """
 
 import asyncio
@@ -23,6 +24,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from app.logging import get_logger
+from app.tracing import preview, span
 
 log = get_logger(__name__)
 
@@ -107,6 +109,13 @@ class Registry:
         return tool
 
     async def execute(self, name: str, args: dict | None, ctx: ToolContext) -> ToolResult:
+        with span(f"tool:{name}", "tool", inputs={"tool": name, "args": args or {}},
+                  metadata={"role": ctx.role, "user_id": ctx.user_id}) as run:
+            result = await self._execute(name, args, ctx)
+            _end_span(run, result)
+        return result
+
+    async def _execute(self, name: str, args: dict | None, ctx: ToolContext) -> ToolResult:
         start = time.perf_counter()
         try:
             tool = self.check(name, ctx)
@@ -140,8 +149,12 @@ class Registry:
 
     def record_rejection(self, name: str, ctx: ToolContext) -> ToolResult:
         """A human rejected the call at the approval step."""
-        return self._finish(ToolResult(name, "rejected", message="The request was not approved."), ctx,
-                            time.perf_counter())
+        with span(f"tool:{name}", "tool", inputs={"tool": name}, metadata={"role": ctx.role, "user_id": ctx.user_id},
+                  tags=["rejected_by_human"]) as run:
+            result = self._finish(ToolResult(name, "rejected", message="The request was not approved."), ctx,
+                                  time.perf_counter())
+            _end_span(run, result)
+        return result
 
     def _finish(self, result: ToolResult, ctx: ToolContext, start: float) -> ToolResult:
         result.latency_ms = round((time.perf_counter() - start) * 1000)
@@ -151,6 +164,14 @@ class Registry:
         self.audit.append(entry)
         log.info("tool_audit", **{k: v for k, v in entry.items() if k != "ts"})
         return result
+
+
+def _end_span(run, result: ToolResult) -> None:
+    """Record the outcome on the tool span; failures show as errors in LangSmith, refusals as outputs."""
+    rbac = {"denied": "denied", "unknown_tool": "unknown tool"}.get(result.status, "allowed")
+    run.end(outputs={"status": result.status, "rbac": rbac, "message": result.message,
+                     "latency_ms": result.latency_ms, "data": preview(result.data)},
+            error=f"{result.status}: {result.message}" if result.status in ("error", "timeout") else None)
 
 
 REGISTRY = Registry()

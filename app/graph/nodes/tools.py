@@ -86,7 +86,7 @@ async def approval_gate(state: AgentState, runtime: Runtime[UserContext]) -> dic
 
     # Pause the run. The API shows the request to the user; resuming returns their decision here.
     decision = interrupt({"tool": name, "args": call.get("args", {}), "reason": call.get("reason", ""),
-                         "message": f"Approve running '{name}'?"})
+                         "message": f"Approve running '{name}'?", "run_id": runtime.context.run_id})
     approved = bool(isinstance(decision, dict) and decision.get("approved"))
     emit("approval_decision", tool=name, approved=approved, by=(decision or {}).get("by"))
     return {"tool_call": {**call, "approved": approved, "approved_by": (decision or {}).get("by")}}

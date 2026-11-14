@@ -12,6 +12,7 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
+from app.api import chat as chat_api
 from app.graph import builder
 from app.graph.nodes import response, supervisor, tools, validator
 from app.main import app
@@ -121,7 +122,15 @@ def test_approval_pause_conflict_and_rejection(client, monkeypatch):
     assert client.post("/chat", json={"thread_id": "ap1", "message": "hello?"}, headers=admin).status_code == 409
     assert client.post("/chat/resume", json={"thread_id": "ap1", "approved": True}, headers=viewer).status_code == 400
 
+    # LangSmith: the resumed run records which run asked for the approval (two traces, one turn).
+    assert approval["run_id"] == events[-1][1]["run_id"]
+    configs = []
+    original = chat_api._graph_config
+    monkeypatch.setattr(chat_api, "_graph_config", lambda *a, **k: configs.append(original(*a, **k)) or configs[-1])
+
     events = sse(client.post("/chat/resume", json={"thread_id": "ap1", "approved": False}, headers=admin))
+    assert configs[0]["metadata"]["resumes_run_id"] == approval["run_id"]
+    assert "approval_resume" in configs[0]["tags"]
     assert dict(events)["tool_result"]["status"] == "rejected"
     assert events[-1][1]["status"] == "complete" and answer(events) == "The re-index was not approved."
 

@@ -39,6 +39,7 @@ from app.llm.factory import get_llm
 from app.rlm.catalog import Catalog, CatalogError
 from app.rlm.sandbox import run_plan
 from app.security.guards import sanitize_retrieved
+from app.tracing import preview, span
 
 MAX_DOCS = 24
 PLAN_ATTEMPTS = 3
@@ -117,7 +118,13 @@ async def research_planner(state: AgentState, runtime: Runtime[UserContext]) -> 
                  documents=0, batches=0, lines_executed=0, catalog_calls={})
             break
         code = _extract_code(reply.content)
-        run = await run_plan(code, catalog)
+        # LangSmith: the generated Python plan and what it selected (its catalog searches nest inside).
+        with span("rlm_sandbox", inputs={"attempt": attempts, "code": code}) as trace_run:
+            run = await run_plan(code, catalog)
+            trace_run.end(outputs={"ok": run.ok, "result": preview(run.result), "error": run.error,
+                                   "stdout": run.stdout[:1000], "lines_executed": run.lines_executed,
+                                   "seconds": round(run.seconds, 2), "catalog_calls": run.catalog_usage},
+                          error=run.error)
         error = run.error
         if run.ok:
             try:
