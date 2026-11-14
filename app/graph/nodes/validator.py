@@ -3,7 +3,8 @@
 Deterministic checks (always):
   - the answer is not empty
   - every [citation] exists in the evidence the response agent was actually given
-    (hallucinated citations – a guardrail the brief asks for)
+    (hallucinated citations – a guardrail the brief asks for), grouped ones included
+    ([A#x, B#y] – parsing in app/graph/citations.py)
   - document answers (retrieve / research) cite at least one source
 LLM grounding check (fast model, short timeout, only when the deterministic checks pass):
   - each factual claim is supported by the documents; if the check cannot run it is
@@ -21,13 +22,13 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
+from app.graph.citations import find_citations, remove_citations
 from app.graph.events import emit
 from app.graph.nodes.common import node, parse_json
 from app.graph.state import AgentState, UserContext
 from app.llm import prompts
 from app.llm.factory import get_llm
 
-CITATION = re.compile(r"\[([A-Z]+-[\w-]+#[\w-]+)\]")
 MAX_RETRIES = 1
 REPAIR_NOTE = "\n\n_Some references could not be verified against the source documents and were removed._"
 
@@ -44,7 +45,7 @@ def deterministic_problems(answer: str, route: str, allowed: set[str]) -> list[s
     problems = []
     if len(answer.strip()) < 15:
         problems.append("the answer is empty or too short")
-    cited = set(CITATION.findall(answer))
+    cited = set(find_citations(answer))
     invented = sorted(cited - allowed)
     if invented:
         problems.append(f"these citations are not in the documents provided: {', '.join(invented)}")
@@ -104,7 +105,7 @@ async def validator(state: AgentState, runtime: Runtime[UserContext]) -> Command
 
     if not problems:
         result = {"ok": True, "action": "accepted", "attempt": attempt, "problems": [], "grounding": grounding,
-                  "citations": sorted(set(CITATION.findall(answer)))}
+                  "citations": sorted(find_citations(answer))}
         emit("validation", **result)
         return Command(goto="output_guard", update={"validation": result})
 
@@ -117,8 +118,8 @@ async def validator(state: AgentState, runtime: Runtime[UserContext]) -> Command
     # Last resort: never end worse than the first attempt. If the rewrite is empty, use the first answer.
     previous = (state.get("validation") or {}).get("previous_answer", "")
     base = answer if len(answer.strip()) >= 15 or len(previous.strip()) < 15 else previous
-    # Remove citations that do not exist, keep the rest, and say so.
-    repaired = CITATION.sub(lambda m: m.group(0) if m.group(1) in allowed else "", base)
+    # Remove citations that do not exist (also inside a group), keep the rest, and say so.
+    repaired = remove_citations(base, allowed)
     if repaired != base:
         repaired = re.sub(r"[ \t]{2,}", " ", repaired) + REPAIR_NOTE
     result = {"ok": False, "action": "repaired", "attempt": attempt, "problems": problems, "grounding": grounding}

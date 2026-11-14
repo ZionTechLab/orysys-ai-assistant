@@ -1,10 +1,9 @@
 """Response agent: writes the final answer from evidence only, streamed token by token."""
 
-import re
-
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
 
+from app.graph.citations import find_citations
 from app.graph.events import emit
 from app.graph.nodes.common import node
 from app.graph.state import AgentState, UserContext
@@ -12,8 +11,6 @@ from app.llm import prompts
 from app.llm.factory import get_llm
 from app.memory.summary import conversation_context
 from app.security.guards import sanitize_retrieved
-
-CITATION = re.compile(r"\[([A-Z]+-[\w-]+#[\w-]+)\]")
 
 FALLBACK_ANSWER = (
     "I'm sorry, I can't answer right now because a service I depend on is unavailable. "
@@ -116,7 +113,7 @@ async def response_agent(state: AgentState, runtime: Runtime[UserContext]) -> di
     # Streaming model: tokens reach the UI through LangGraph's "messages" stream as they are generated.
     reply = await get_llm("strong", streaming=True).ainvoke([SystemMessage(system), *history[:-1],
                                                               HumanMessage(history[-1].content)])
-    citations = sorted(set(CITATION.findall(reply.content)))
+    citations = sorted(find_citations(reply.content))
     emit("response_done", citations=citations, chars=len(reply.content))
     if retry_of is not None:
         return {"messages": [AIMessage(reply.content, id=retry_of.id)]}  # replaces the rejected answer
