@@ -4,6 +4,7 @@ Run: .venv/Scripts/streamlit run ui/streamlit_app.py
 Talks only to the FastAPI backend (API_URL); it holds no business logic.
 """
 
+import html
 import json
 import os
 import time
@@ -16,6 +17,37 @@ API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
 st.set_page_config(page_title="ComBank Knowledge Assistant", layout="wide")
+
+# Brand styling on top of .streamlit/config.toml: colours of the public combank.lk site, no logo or imagery.
+st.markdown("""
+<style>
+.cb-hero {background: linear-gradient(to right, #0949A2, #095BCC); border-radius: 14px;
+          padding: 1.1rem 1.5rem; margin-bottom: 1rem; box-shadow: 0 4px 14px rgba(14, 46, 90, .18);}
+.cb-hero .cb-title {color: #F7D700; font-weight: 800; font-size: 1.7rem; line-height: 1.2;}
+.cb-hero .cb-sub {color: #FFFFFF; opacity: .92; font-size: .95rem; margin-top: .2rem;}
+.cb-hero .cb-note {color: #D2D8E2; font-size: .75rem; margin-top: .45rem;}
+[data-testid="stMain"] h3 {color: #0E2E5A !important; font-weight: 800;}
+[data-testid="stSidebar"] h2 {color: #F7D700;}
+.cb-user {background: #0949A2; border-left: 4px solid #F7D700; border-radius: 10px; padding: .6rem .8rem;
+          margin: .4rem 0 .6rem 0; color: #FFFFFF;}
+.cb-user .cb-name {color: #F7D700; font-weight: 700;}
+/* the site's red call-to-action gradient, for the sidebar's primary button (Log in) */
+[data-testid="stSidebar"] button[kind="primaryFormSubmit"], [data-testid="stSidebar"] button[kind="primary"] {
+    background: linear-gradient(#F13444, #DF3020); border: none; color: #FFFFFF; font-weight: 700;}
+/* chat avatars in the bank's blues instead of Streamlit's default red / orange */
+[data-testid="stChatMessageAvatarUser"] {background-color: #095BCC !important;}
+[data-testid="stChatMessageAvatarAssistant"] {background-color: #0E2E5A !important;}
+[data-testid="stChatMessageAvatarAssistant"] svg {color: #F7D700;}
+</style>
+""", unsafe_allow_html=True)
+
+# Header banner – before the sidebar, so the login screen shows it too (the login form stops the script).
+st.markdown(
+    '<div class="cb-hero"><div class="cb-title">ComBank Knowledge Assistant</div>'
+    '<div class="cb-sub">Answers from the bank\'s policies, runbooks, incident reports and specifications – '
+    'with citations, and every agent step shown live.</div>'
+    '<div class="cb-note">Internal staff assistant · all sample documents are fictional – not real Commercial Bank '
+    'of Ceylon information</div></div>', unsafe_allow_html=True)
 
 # ---------- session state ----------
 ss = st.session_state
@@ -217,7 +249,7 @@ with st.sidebar:
         with st.form("login"):
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
-            if st.form_submit_button("Log in"):
+            if st.form_submit_button("Log in", type="primary", use_container_width=True):
                 ok, err = api_login(username, password)
                 if ok:
                     st.rerun()
@@ -225,7 +257,8 @@ with st.sidebar:
         st.stop()
 
     u = ss.user
-    st.success(f"{u['display_name']}  \nRole: **{u['role']}**")
+    st.markdown(f'<div class="cb-user"><div class="cb-name">{html.escape(u["display_name"])}</div>'
+                f'<div>Role: <b>{html.escape(u["role"])}</b></div></div>', unsafe_allow_html=True)
     st.caption(f"Can read: {', '.join(u['clearance'])}")
     st.caption(f"Conversation: `{ss.thread_id}`")
 

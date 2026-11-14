@@ -1,0 +1,27 @@
+# UI theme – colours and font follow the public combank.lk website (no logo or imagery is used).
+# Blue #095BCC / #0949A2, navy #0E2E5A, yellow accent #F7D700, light grey #F7F8F8, font Nunito.
+
+[server]
+address = "127.0.0.1"   # local only
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#095BCC"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F7F8F8"
+textColor = "#0E1126"
+linkColor = "#095BCC"
+borderColor = "#D2D8E2"
+font = "Nunito:https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap"
+headingFont = "Nunito:https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap"
+baseRadius = "0.6rem"
+buttonRadius = "full"
+
+[theme.sidebar]
+backgroundColor = "#0E2E5A"
+secondaryBackgroundColor = "#0949A2"
+textColor = "#FFFFFF"
+borderColor = "#2A4C7E"
