@@ -44,32 +44,83 @@ Built for the ORYSYS *AI Lead Technical Assessment*: a multi-agent LangGraph bac
 ## Architecture
 
 ```mermaid
-flowchart LR
-    user(["Bank staff<br/>viewer / analyst / admin"]) --> ui["Streamlit UI<br/>chat + activity panel"]
-    ui <-->|"HTTP + SSE"| api
+flowchart TB
+    user(["Bank staff<br/>viewer · analyst · admin"])
 
-    subgraph api["FastAPI (async)"]
+    subgraph L1["1 · Presentation – Streamlit"]
         direction TB
-        mw["request id · JSON logs"] --> auth["JWT auth"] --> rl["token bucket"] --> chat["/chat (SSE)"]
+        chat["Chat window<br/>streamed answer + citations"]
+        panel["Agent activity panel<br/>every step, live"]
     end
 
-    subgraph lg["LangGraph"]
-        direction TB
-        gin["Input guard"] --> sup["Supervisor"]
-        sup --> ret["Retrieval agent"] & res["Research agent (RLM)"] & tool["Tool agent → approval → executor"]
-        ret & res & tool --> resp["Response agent"] --> val["Validator"] --> gout["Output guard"] --> memn["Memory"]
+    subgraph L2["2 · API – FastAPI, async"]
+        direction LR
+        mw["Request id<br/>JSON logs"] --> auth["JWT auth<br/>role + clearance"] --> rl["Rate limiter<br/>token bucket"] --> sse["/chat<br/>SSE stream"]
     end
 
-    chat --> gin
-    ret & res --> pc[("Pinecone<br/>hybrid index")]
-    ret -.->|"down"| bm25[("local BM25")]
-    res --> sbx["Sandbox<br/>generated Python"]
-    tool --> mcp["MCP server<br/>enterprise data"]
-    tool --> sbx
-    lg <--> ck[("SQLite<br/>checkpointer")]
-    lg --> llm["LLM gateway<br/>(9router)"]
-    lg -.-> ls["LangSmith"]
+    subgraph L3["3 · Agents – LangGraph"]
+        direction TB
+        subgraph ENTRY["Understand"]
+            direction LR
+            gin["Input guard<br/>injection, abuse"] --> sup["Supervisor<br/>intent · route · filters"]
+        end
+        subgraph SPEC["Specialists – one per route"]
+            direction TB
+            ret["Retrieval agent<br/>hybrid search"]
+            res["Research agent – RLM<br/>Python plan · parallel workers"]
+            tool["Tool agent<br/>RBAC · human approval"]
+        end
+        subgraph CHECK["Answer and check"]
+            direction LR
+            resp["Response agent<br/>cited answer"] --> val["Validator<br/>citations · grounding"] --> gout["Output guard<br/>leakage · brand"] --> memn["Memory<br/>rolling summary"]
+        end
+        ENTRY --> SPEC --> CHECK
+    end
+
+    subgraph L4["4 · Data and services"]
+        direction TB
+        pc[("Pinecone<br/>hybrid index · 45 docs<br/>namespace per dept")]
+        bm25[("Local BM25<br/>fallback")]
+        sbx["Python sandbox<br/>RLM plans, analysis"]
+        mcp["MCP server<br/>live enterprise data"]
+        ck[("SQLite checkpointer<br/>memory, paused approvals")]
+        llm["LLM gateway<br/>+ fallback LLM"]
+    end
+
+    subgraph OBS["5 · Observability"]
+        direction TB
+        ls["LangSmith<br/>one trace per turn<br/>+ answer feedback"]
+        logs["JSON logs<br/>request id · no content"]
+    end
+
+    user --> L1
+    L1 <-->|"HTTPS · SSE events"| L2
+    L2 -->|"question + user context<br/>(role, clearance from the token)"| L3
+    L3 -->|"filtered by the user's clearance"| L4
+    L3 -.->|"every node, LLM call,<br/>search and tool"| OBS
+
+    classDef agent fill:#e8f0fe,stroke:#1a56db,color:#0b1f44
+    classDef guard fill:#fdecea,stroke:#c0392b,color:#4a0e08
+    classDef store fill:#eef2f5,stroke:#5f6b76,color:#1d252c
+    classDef svc fill:#f3ecfb,stroke:#7b3fb6,color:#2b0f45
+    classDef io fill:#fff7e0,stroke:#b7791f,color:#3d2a05
+    class sup,ret,res,tool,resp,memn agent
+    class gin,val,gout,auth,rl guard
+    class pc,bm25,ck store
+    class sbx,mcp,llm,ls,logs svc
+    class chat,panel,mw,sse io
+    style L1 fill:#fafafa,stroke:#9aa5b1,color:#1d252c
+    style L2 fill:#fafafa,stroke:#9aa5b1,color:#1d252c
+    style L3 fill:#fafafa,stroke:#9aa5b1,color:#1d252c
+    style L4 fill:#fafafa,stroke:#9aa5b1,color:#1d252c
+    style OBS fill:#fafafa,stroke:#9aa5b1,color:#1d252c
+    style ENTRY fill:#ffffff,stroke:#c8d0d8,color:#1d252c
+    style SPEC fill:#ffffff,stroke:#c8d0d8,color:#1d252c
+    style CHECK fill:#ffffff,stroke:#c8d0d8,color:#1d252c
+    linkStyle default stroke:#6b7785,stroke-width:1.5px
 ```
+
+*Colours:* blue = agents · red = guards and access control · grey = data stores · purple = services and telemetry · amber = UI and API entry points.
 
 Detailed diagrams are in [`docs/`](#documentation): system (D1), request lifecycle (D3), agent graph generated from code (D2), RLM (D4), retrieval (D5, D6), security (D7, D8), failure map (D9), state (D10), memory (D11), observability (D12), rate limiting (D13), SharePoint live environment (D16).
 
