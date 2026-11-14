@@ -37,7 +37,7 @@ Built for the ORYSYS *AI Lead Technical Assessment*: a multi-agent LangGraph bac
 | Rate limiting             | Token bucket per user (configurable, per-role overrides) → 429 with`Retry-After`; login limiter                                                                                                                             | [security.md – D13](docs/security.md#d13--rate-limiting)                         |
 | Error handling            | Every node is isolated with a fallback; Pinecone → local BM25; LLM down → list of the documents found; MCP down → document search; built-in fault injection to demonstrate it                                               | [resilience.md](docs/resilience.md)                                               |
 | UI                        | Streamlit: streaming chat + activity panel (current node, route, retrieval, tool calls, approval, memory, validation, guards)                                                                                                  | `ui/streamlit_app.py`                                                          |
-| Bonus                     | Multi-agent failure isolation, human-in-the-loop approval, answer-quality feedback (👍 / 👎 stored on the LangSmith run)                                                                                                       | [decision A8](docs/assumptions_and_decisions.md), [next steps](docs/next_steps.md)                        |
+| Bonus                     | Multi-agent failure isolation, human-in-the-loop approval, answer-quality feedback (👍 / 👎 stored on the LangSmith run)                                                                                                       | [decision A8](docs/assumptions_and_decisions.md), [next steps](docs/next_steps.md) |
 
 ---
 
@@ -141,31 +141,26 @@ Detailed diagrams are in [`docs/`](#documentation): system (D1), request lifecyc
 
 ```bash
 python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt     # Linux/macOS: .venv/bin/pip
-cp .env.example .env
+.venv\Scripts\activate          # Windows (PowerShell: .venv\Scripts\Activate.ps1)
+source .venv/bin/activate        # Linux / macOS
+pip install -r requirements.txt
+cp .env.example .env             # Windows cmd: copy .env.example .env
 ```
 
-Fill in `.env` (every setting is listed in `.env.example`):
+All commands below assume the virtual environment is active (the prompt starts with `(.venv)`).
 
-| Variable                                                                    | Purpose                                                                                                             |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL_STRONG`, `LLM_MODEL_FAST` | the LLM endpoint and the model for each tier                                                                        |
-| `PINECONE_API_KEY`, `PINECONE_INDEX`                                    | vector index (created by the ingest script)                                                                         |
-| `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`                                | tracing                                                                                                             |
-| `JWT_SECRET`                                                              | signs login tokens – set a long random value                                                                       |
-| `MCP_API_KEY`                                                             | shared key between the API and the MCP server, e.g.`python -c "import secrets; print(secrets.token_urlsafe(32))"` |
-| `FALLBACK_LLM_*` *(optional)*                                           | a direct provider used when the gateway is down                                                                     |
+Fill in `.env` (every setting is listed in `.env.example`):
 
 ### Run
 
 ```bash
-.venv/Scripts/python scripts/smoke_llm.py     # check the LLM endpoint: JSON + streaming
-.venv/Scripts/python scripts/ingest.py        # create the index and sync the 45 documents (--dry-run, --full)
+python scripts/smoke_llm.py     # check the LLM endpoint: JSON + streaming
+python scripts/ingest.py        # create the index and sync the 45 documents (--dry-run, --full)
 
 # three processes, each in its own terminal
-.venv/Scripts/python -m mcp_server                                            # MCP server  127.0.0.1:8765
-.venv/Scripts/uvicorn app.main:app --host 127.0.0.1 --port 8000               # API         127.0.0.1:8000
-.venv/Scripts/streamlit run ui/streamlit_app.py --server.address 127.0.0.1    # UI          127.0.0.1:8501
+python -m mcp_server                                            # MCP server  127.0.0.1:8765
+uvicorn app.main:app --host 127.0.0.1 --port 8000               # API         127.0.0.1:8000
+streamlit run ui/streamlit_app.py --server.address 127.0.0.1    # UI          127.0.0.1:8501
 ```
 
 Open http://127.0.0.1:8501 and log in. `GET /health` shows the state of the LLM gateway, Pinecone and the MCP server.
@@ -275,26 +270,35 @@ All assumptions and design decisions are in [`docs/assumptions_and_decisions.md`
 
 ## Tests
 
-315 tests that need no network (fake models, in-process MCP session, in-memory checkpointer):
+**315 tests**, all offline – models are faked, the MCP server runs in-process and memory is in-memory – so they run in about 10 seconds with no keys or network.
+
+### Run them
 
 ```bash
-.venv/Scripts/pytest                                                   # all tests
-.venv/Scripts/python -m coverage run --source=app,mcp_server -m pytest  # with coverage
-.venv/Scripts/python -m coverage report                                 # summary in the terminal
-.venv/Scripts/python -m coverage html                                   # browsable report: htmlcov/index.html
+pytest -q
 ```
 
-Line coverage is about 89%. The lower figures are network clients (`pinecone_store`, `sync`, `health`, LLM factory), which the live runs recorded in the docs exercise. Set `COVERAGE_CORE=sysmon` to also count code that runs inside the sandbox (the sandbox replaces the default tracer in its thread).
+### What they cover
 
-| Area                                      | Test files                                                                         |
-| ----------------------------------------- | ---------------------------------------------------------------------------------- |
-| Auth, RBAC, approval                      | `test_auth`, `test_tools_rbac`, `test_mcp`                                   |
-| Rate limiting                             | `test_rate_limit`                                                                |
-| Prompt injection, validator, output guard | `test_guards`, `test_guard_validator`, `test_output_guard`                   |
-| Sandbox (escapes, budgets, memory)        | `test_sandbox`, `test_analysis_tool`                                           |
-| Hybrid scoring, filters, ingestion        | `test_retrieval`, `test_loaders`, `test_sync`, `test_retrieval_resilience` |
-| Graph, RLM, memory                        | `test_graph`, `test_research`, `test_catalog`, `test_memory`               |
-| API streaming, errors, fault injection    | `test_chat_api`, `test_faults`, `test_logging`                               |
+| Area                                                 | Tests |
+| ---------------------------------------------------- | ----- |
+| Prompt injection, validator, citations, output guard | 92    |
+| Agents, RLM research, memory                         | 55    |
+| Sandbox for generated code (escapes, limits, memory) | 54    |
+| Login, RBAC, human approval, MCP                     | 40    |
+| Search, document loaders, index sync                 | 34    |
+| API streaming, outages, logs, feedback, tracing      | 32    |
+| Rate limiting                                        | 8     |
+
+### Coverage
+
+```bash
+python -m coverage run --source=app,mcp_server -m pytest   # run the tests with coverage
+python -m coverage report                                  # summary in the terminal
+python -m coverage html                                    # browsable report: htmlcov/index.html
+```
+
+Line coverage is about **89%**. Agents, guards, the sandbox, RBAC and rate limiting are at 92–100%. The lower figures are the clients for real services (`pinecone_store`, `sync`, `health`, the LLM factory), which the live runs in the docs exercise instead. To also count code that runs inside the sandbox, set `COVERAGE_CORE=sysmon` first.
 
 ---
 
@@ -344,5 +348,5 @@ orysys-ai-assistant/
 | [resilience.md](docs/resilience.md)                               | failure map (D9), fallbacks, fault injection, live results                                                                                      |
 | [logging.md](docs/logging.md)                                     | what is logged and what is never logged                                                                                                         |
 | [brand_guardrails.md](docs/brand_guardrails.md)                   | brand and conduct rules for the bot                                                                                                             |
-| [assumptions_and_decisions.md](docs/assumptions_and_decisions.md) | 8 assumptions and decisions with trade-offs                                                                                                    |
-| [next_steps.md](docs/next_steps.md) | what would be built next, and how |
+| [assumptions_and_decisions.md](docs/assumptions_and_decisions.md) | 8 assumptions and decisions with trade-offs                                                                                                     |
+| [next_steps.md](docs/next_steps.md)                               | what would be built next, and how                                                                                                               |
