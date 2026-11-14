@@ -17,11 +17,11 @@ from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, Request
 from langchain_core.messages import AIMessageChunk
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from langgraph.types import Command
-
+from app.api.feedback import remember_run
 from app.errors import AppError, InvalidRequestError, PermissionDeniedError
 from app.graph.state import UserContext, new_turn_state
 from app.logging import bind_context, fingerprint, get_logger
@@ -89,6 +89,7 @@ async def _stream_turn(request: Request, user: User, thread_id: str, graph_input
     graph = request.app.state.graph
     request_id = request.state.request_id
     run_id = uuid.uuid4()
+    remember_run(run_id, user.user_id)  # so only this user can rate this answer (POST /feedback)
     config = _graph_config(user, thread_id, request_id, run_id)
     summary: dict = {"route": None, "citations": []}
     streamed_tokens = 0

@@ -354,12 +354,55 @@ def turn_caption(m: dict) -> None:
         st.caption(" · ".join(parts))
 
 
+# ---------- answer feedback (stored in LangSmith on the answer's run) ----------
+def _post_feedback(m: dict, score: int, comment: str | None = None) -> bool:
+    try:
+        r = httpx.post(f"{API_URL}/feedback", json={"run_id": m["run_id"], "score": score, "comment": comment},
+                       headers=auth_headers(), timeout=TIMEOUT)
+        return r.status_code == 200 and bool(r.json().get("stored"))
+    except httpx.HTTPError:
+        return False
+
+
+def send_rating(i: int) -> None:
+    m = ss.messages[i]
+    score = ss.get(f"fb_{m['run_id']}")
+    if score is None:  # thumb cleared
+        return
+    m["feedback"] = {"score": score, "stored": _post_feedback(m, score)}
+
+
+def send_comment(i: int) -> None:
+    m = ss.messages[i]
+    comment = (ss.get(f"fbc_{m['run_id']}") or "").strip()
+    if comment and m.get("feedback"):
+        m["feedback"]["stored"] = _post_feedback(m, m["feedback"]["score"], comment)
+        m["feedback"]["comment_sent"] = True
+
+
+def feedback_widget(i: int, m: dict) -> None:
+    """👍 / 👎 under each finished answer; after 👎, an optional 'what was wrong?' comment."""
+    if m["role"] != "assistant" or not m.get("run_id") or m.get("awaiting"):
+        return
+    st.feedback("thumbs", key=f"fb_{m['run_id']}", on_change=send_rating, args=(i,))
+    fb = m.get("feedback")
+    if not fb:
+        return
+    if fb["score"] == 0 and not fb.get("comment_sent"):
+        st.text_input("What was wrong? (optional – press Enter to send)", key=f"fbc_{m['run_id']}", max_chars=500,
+                      placeholder="e.g. wrong document, missing step, not what I asked", on_change=send_comment,
+                      args=(i,))
+    st.caption("Thanks – feedback recorded" if fb["stored"] else
+               "Thanks – feedback noted in the log (LangSmith is unavailable)")
+
+
 with chat_col:
     st.subheader("Chat")
-    for m in ss.messages:
+    for i, m in enumerate(ss.messages):
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
             turn_caption(m)
+            feedback_widget(i, m)
 
     def run_turn(path: str, payload: dict, turn: dict) -> None:
         """Stream one turn (new question or resumed run) into the chat and the activity panel."""
@@ -401,7 +444,8 @@ with chat_col:
                 render_activity(panel)
             url = trace_link(run_id) if run_id else None
             message = {"role": "assistant", "content": answer, "trace": url, "turn": turn["no"],
-                       "seconds": turn["seconds"]}
+                       "seconds": turn["seconds"], "run_id": run_id,
+                       "awaiting": bool(ss.pending)}  # a paused run (approval) is not an answer to rate
             turn_caption(message)
         ss.messages.append(message)
 

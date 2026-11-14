@@ -37,7 +37,7 @@ Built for the ORYSYS *AI Lead Technical Assessment*: a multi-agent LangGraph bac
 | Rate limiting | Token bucket per user (configurable, per-role overrides) → 429 with `Retry-After`; login limiter | [security.md – D13](docs/security.md#d13--rate-limiting) |
 | Error handling | Every node is isolated with a fallback; Pinecone → local BM25; LLM down → list of the documents found; MCP down → document search; built-in fault injection to demonstrate it | [resilience.md](docs/resilience.md) |
 | UI | Streamlit: streaming chat + activity panel (current node, route, retrieval, tool calls, approval, memory, validation, guards) | `ui/streamlit_app.py` |
-| Bonus | Multi-agent failure isolation, human-in-the-loop approval | [decisions – A30](docs/decisions.md) |
+| Bonus | Multi-agent failure isolation, human-in-the-loop approval, answer-quality feedback (👍 / 👎 stored on the LangSmith run) | [decisions – A30, A31](docs/decisions.md) |
 
 ---
 
@@ -145,7 +145,7 @@ Hardcoded users (brief Option A). The passwords are listed here for the demo; th
 | any | *What was announced at the Q3 2026 IT town hall?* | `MTG-005` hides an injected instruction in an HTML comment – removed before the model sees it (`content_flagged`) |
 | admin1 | sidebar → *Simulate outages* → Pinecone / LLM / MCP down, then ask again | keyword-search fallback, list of the documents found, document search instead of live data |
 
-The panel links each answer to its LangSmith trace. Answers take roughly 10–60 s with the free reasoning model behind the gateway; research questions take longer (decision A5).
+The panel links each answer to its LangSmith trace; rate answers with 👍 / 👎 and the rating appears on that trace in LangSmith. Answers take roughly 10–60 s with the free reasoning model behind the gateway; research questions take longer (decision A5).
 
 ---
 
@@ -210,17 +210,19 @@ An admin can **simulate** Pinecone, LLM and MCP outages from the UI to demonstra
 
 ### Observability
 
-Every turn is one LangSmith trace (`chat_turn`, tagged with the role; metadata holds the request id, user and thread): each node, each LLM call, the hybrid search as a *retriever* run with its documents, and tool execution. JSON logs (structlog) carry the same `request_id`, user and thread on every line, but no message content. The activity panel streams the same events live. → [logging.md](docs/logging.md), [architecture.md – D12](docs/architecture.md#d12--observability-and-correlation), decision A7
+Every turn is one LangSmith trace (`chat_turn`, tagged with the role; metadata holds the request id, user and thread): each node, each LLM call, the hybrid search as a *retriever* run with its documents, and tool execution. JSON logs (structlog) carry the same `request_id`, user and thread on every line, but no message content. The activity panel streams the same events live, grouped by question with per-step timings. **Answer quality:** 👍 / 👎 under each answer (plus an optional comment after 👎) is stored as LangSmith feedback on that turn's run, so poorly rated answers can be filtered and their traces inspected. → [logging.md](docs/logging.md), [architecture.md – D12](docs/architecture.md#d12--observability-and-correlation), decision A7
 
 ---
 
 ## Assumptions and trade-offs
 
-The full log – 30 entries, each with the decision, the reason and the trade-off – is [`docs/decisions.md`](docs/decisions.md). The main ones:
+The full log – 32 entries, each with the decision, the reason and the trade-off – is [`docs/decisions.md`](docs/decisions.md). The main ones:
 
 | Assumption or decision | Trade-off |
 |---|---|
 | Internal staff assistant, not customer-facing (A1) | customer concerns (KYC, PII masking, multilingual support) are out of scope |
+| **Cloud services are acceptable because the data is fictional (A32)** | Pinecone holds document text and LangSmith traces hold questions, prompts and retrieved text; real bank data would need approved data residency (self-hosted or region-pinned services, masking what is traced) |
+| Runs locally on 127.0.0.1, no HTTPS; English only (A32) | production needs TLS, network controls and a secrets vault; Sinhala / Tamil need multilingual search and guard rules |
 | 45 fictional documents with known recurring root causes, so RLM results can be checked (A3) | small corpus; scale is shown by design (namespaces, batching, sync), not volume |
 | Live documents would come from SharePoint, re-indexed on change notifications (A11, D16) | the POC syncs a folder on demand |
 | Hardcoded users with JWT (A6) | no SSO; production would use the bank's identity provider (OIDC) |
@@ -230,13 +232,13 @@ The full log – 30 entries, each with the decision, the reason and the trade-of
 | In-process sandbox for generated code (A16) | defence in depth, not a hard boundary; production would use an isolated process with OS limits |
 | In-memory rate-limit buckets, audit log and fault switches; SQLite memory (A13, A18, A23) | single instance; production would use Redis and Postgres behind the same interfaces |
 | Input guard and validator fail open, output guard fails closed (A29) | a bug in the output guard hides answers until it is fixed |
-| Bonus items deferred: Docker Compose, reranker, long-term memory, feedback loop (A30) | each is designed and described, not built |
+| Bonus items deferred: Docker Compose, reranker, long-term memory (A30) | each is designed and described, not built |
 
 ---
 
 ## Tests
 
-288 tests that need no network (fake models, in-process MCP session, in-memory checkpointer):
+299 tests that need no network (fake models, in-process MCP session, in-memory checkpointer):
 
 ```bash
 .venv/Scripts/pytest                                                   # all tests
@@ -275,7 +277,7 @@ mcp_server/     MCP server (Streamable HTTP) with fictional enterprise data
 ui/             Streamlit app
 data/docs/      45 fictional documents (Markdown; 2 as DOCX, 2 as PDF)
 scripts/        index sync, LLM smoke test, graph diagram, sample-format generator
-tests/          288 tests
+tests/          299 tests
 docs/           design documents and diagrams
 ```
 
@@ -292,4 +294,4 @@ docs/           design documents and diagrams
 | [resilience.md](docs/resilience.md) | failure map (D9), fallbacks, fault injection, live results |
 | [logging.md](docs/logging.md) | what is logged and what is never logged |
 | [brand_guardrails.md](docs/brand_guardrails.md) | brand and conduct rules for the bot |
-| [decisions.md](docs/decisions.md) | 30 assumptions and decisions with trade-offs |
+| [decisions.md](docs/decisions.md) | 32 assumptions and decisions with trade-offs |
