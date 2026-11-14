@@ -12,7 +12,6 @@ The main assumptions and design decisions, each with why and what it costs. Deta
 | A6 | [Security and access control](#a6-security-and-access-control)    |
 | A7 | [Memory](#a7-memory)                                              |
 | A8 | [Observability and feedback](#a8-observability-and-feedback)      |
-| A9 | [Scope: what's built and what's next](#a9-scope-whats-built-and-whats-next)         |
 
 ---
 
@@ -116,16 +115,6 @@ The `python_analysis` tool uses the same sandbox. Diagram D4.
 
 **Trade-off:** To see what a user asked, you need LangSmith, not the logs. Using the ratings to improve answers is the next step. Details: `docs/logging.md`.
 
-## A9. Scope: what's built and what's next
+---
 
-**Built :** agents that keep working when one fails, human approval for sensitive actions, and 👍 / 👎 feedback on answers.
-
-**Next (planned, not built):**
-
-- **Docker Compose** – start everything with one command.
-- **Reranker** – better ordering of search results.
-- **Long-term memory** – remember a user across conversations.
-- **Conversation history** – reopen past chats (they are already saved).
-- **Long sections** – split very long sections into smaller pieces.
-
-**Why:** The brief says to focus on what matters for a POC first, so I spent the time on the main graded areas and on testing each feature live.
+What I would build next: [`next_steps.md`](next_steps.md).

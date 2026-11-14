@@ -203,7 +203,7 @@ What the brief asks memory to keep, and where it lives:
 
 **Not built (bonus "long-term memory"):** memory across threads, e.g. a per-user store of preferences and frequent topics (LangGraph `Store`). The rolling summary is per conversation.
 
-**Not built (future work): reopening past conversations.** Every conversation is saved per user and survives logout and API restarts, and `GET /threads/{id}` returns it, but the UI has no conversation list – after logging in again the chat starts empty. The brief requires memory within a session, which is met; the list is designed in decision A9.
+**Not built (future work): reopening past conversations.** Every conversation is saved per user and survives logout and API restarts, and `GET /threads/{id}` returns it, but the UI has no conversation list – after logging in again the chat starts empty. The brief requires memory within a session, which is met; the list is designed in `next_steps.md`.
 
 ## Streaming to the activity panel
 

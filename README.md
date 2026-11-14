@@ -37,7 +37,7 @@ Built for the ORYSYS *AI Lead Technical Assessment*: a multi-agent LangGraph bac
 | Rate limiting             | Token bucket per user (configurable, per-role overrides) → 429 with`Retry-After`; login limiter                                                                                                                             | [security.md – D13](docs/security.md#d13--rate-limiting)                         |
 | Error handling            | Every node is isolated with a fallback; Pinecone → local BM25; LLM down → list of the documents found; MCP down → document search; built-in fault injection to demonstrate it                                               | [resilience.md](docs/resilience.md)                                               |
 | UI                        | Streamlit: streaming chat + activity panel (current node, route, retrieval, tool calls, approval, memory, validation, guards)                                                                                                  | `ui/streamlit_app.py`                                                          |
-| Bonus                     | Multi-agent failure isolation, human-in-the-loop approval, answer-quality feedback (👍 / 👎 stored on the LangSmith run)                                                                                                       | [decisions – A8, A9](docs/assumptions_and_decisions.md)                        |
+| Bonus                     | Multi-agent failure isolation, human-in-the-loop approval, answer-quality feedback (👍 / 👎 stored on the LangSmith run)                                                                                                       | [decision A8](docs/assumptions_and_decisions.md), [next steps](docs/next_steps.md)                        |
 
 ---
 
@@ -269,7 +269,7 @@ Every turn is one LangSmith trace (`chat_turn`, tagged with the role; metadata h
 
 ## Assumptions and trade-offs
 
-All assumptions and design decisions are in [`docs/assumptions_and_decisions.md`](docs/assumptions_and_decisions.md).
+All assumptions and design decisions are in [`docs/assumptions_and_decisions.md`](docs/assumptions_and_decisions.md). What I would build next is in [`docs/next_steps.md`](docs/next_steps.md).
 
 ---
 
@@ -331,4 +331,5 @@ docs/           design documents and diagrams
 | [resilience.md](docs/resilience.md)                               | failure map (D9), fallbacks, fault injection, live results                                                                                      |
 | [logging.md](docs/logging.md)                                     | what is logged and what is never logged                                                                                                         |
 | [brand_guardrails.md](docs/brand_guardrails.md)                   | brand and conduct rules for the bot                                                                                                             |
-| [assumptions_and_decisions.md](docs/assumptions_and_decisions.md) | 9 assumptions and decisions with trade-offs                                                                                                    |
+| [assumptions_and_decisions.md](docs/assumptions_and_decisions.md) | 8 assumptions and decisions with trade-offs                                                                                                    |
+| [next_steps.md](docs/next_steps.md) | what would be built next, and how |
