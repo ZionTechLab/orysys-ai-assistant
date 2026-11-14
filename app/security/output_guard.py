@@ -53,7 +53,9 @@ def _prompt_fragments() -> list[str]:
     from app.llm import prompts
 
     fragments = set()
-    user_facing = {prompts.REFUSAL}  # texts we show to users on purpose are not "leaks"
+    # Texts meant to be shown to users are not "leaks": the fixed refusal, and the greeting prompt, which
+    # tells the model what to say when asked what it can do (its capability list was being cut from answers).
+    user_facing = {prompts.REFUSAL, prompts.CHITCHAT}
     for value in vars(prompts).values():
         if isinstance(value, str) and len(value) > 200 and value not in user_facing:
             for sentence in re.split(r"(?<=[.:!?])\s+|\n", value):

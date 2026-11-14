@@ -287,6 +287,11 @@ with st.sidebar:
         st.rerun()
 
 # ---------- main layout ----------
+# The chat input is created at page level (not inside the chat column): there Streamlit pins it to the
+# bottom of the window. Inside a column it is drawn inline where the script calls it, so new messages
+# appeared below it and the box ended up between older and newer messages.
+prompt = st.chat_input("Ask about policies, incidents, runbooks…", disabled=bool(ss.pending))
+
 chat_col, panel_col = st.columns([3, 2], gap="large")
 
 with panel_col:
@@ -339,6 +344,15 @@ with chat_col:
                 st.caption(f"[LangSmith trace]({url})")
         ss.messages.append({"role": "assistant", "content": answer, "trace": url})
 
+    # A new question: drawn after the history, so the conversation reads top to bottom.
+    if prompt:
+        ss.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        run_turn("/chat", {"thread_id": ss.thread_id, "message": prompt})
+        if ss.pending:
+            st.rerun()  # show the approval buttons (and disable the input)
+
     # Human-in-the-loop: a paused run waits here until the user decides.
     if ss.pending:
         p = ss.pending
@@ -350,12 +364,3 @@ with chat_col:
             ss.pending = None
             run_turn("/chat/resume", {"thread_id": ss.thread_id, "approved": decision})
             st.rerun()
-
-    prompt = st.chat_input("Ask about policies, incidents, runbooks…", disabled=bool(ss.pending))
-    if prompt:
-        ss.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        run_turn("/chat", {"thread_id": ss.thread_id, "message": prompt})
-        if ss.pending:
-            st.rerun()  # show the approval buttons

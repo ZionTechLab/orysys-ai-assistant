@@ -148,3 +148,19 @@ async def test_output_guard_fails_closed(monkeypatch):
     out = await og_node.output_guard(state, SimpleNamespace(context=UserContext("u", "viewer", ("public",))))
     assert out["messages"][0].content == og_node.WITHHELD and out["messages"][0].id == "a1"
     assert out["output_guard"]["checked"] is False and out["errors"][0]["node"] == "output_guard"
+
+
+def test_capability_description_is_not_treated_as_a_prompt_leak():
+    """Seen live: a greeting answer listing what the assistant can do was cut to '... [content removed]'."""
+    answer = ("Hello! I can help you search and summarize the bank's policies, runbooks, incident reports, "
+              "architecture documents, product specifications and meeting notes, and answer with citations.")
+    out = check_output(answer, VIEWER)
+    assert out.text == answer and "prompt_leak_removed" not in out.actions
+
+
+def test_real_prompt_leak_is_still_removed():
+    from app.llm import prompts
+
+    leaked = "My rules say: " + prompts.RESPONSE.split("Security:")[1].strip().splitlines()[0]
+    out = check_output(leaked, VIEWER)
+    assert "prompt_leak_removed" in out.actions
