@@ -7,4 +7,5 @@ __pycache__/
 data/bm25.json
 data/*.db*
 .coverage
+htmlcov/
 .ruff_cache/

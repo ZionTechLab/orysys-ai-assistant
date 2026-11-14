@@ -280,10 +280,11 @@ All assumptions and design decisions are in [`docs/assumptions_and_decisions.md`
 ```bash
 .venv/Scripts/pytest                                                   # all tests
 .venv/Scripts/python -m coverage run --source=app,mcp_server -m pytest  # with coverage
-.venv/Scripts/python -m coverage report
+.venv/Scripts/python -m coverage report                                 # summary in the terminal
+.venv/Scripts/python -m coverage html                                   # browsable report: htmlcov/index.html
 ```
 
-Line coverage is about 88%. The lower figures are network clients (`pinecone_store`, `sync`, `health`, LLM factory), which the live runs recorded in the docs exercise. Set `COVERAGE_CORE=sysmon` to also count code that runs inside the sandbox (the sandbox replaces the default tracer in its thread).
+Line coverage is about 89%. The lower figures are network clients (`pinecone_store`, `sync`, `health`, LLM factory), which the live runs recorded in the docs exercise. Set `COVERAGE_CORE=sysmon` to also count code that runs inside the sandbox (the sandbox replaces the default tracer in its thread).
 
 | Area                                      | Test files                                                                         |
 | ----------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -300,22 +301,34 @@ Line coverage is about 88%. The lower figures are network clients (`pinecone_sto
 ## Project layout
 
 ```
-app/
-  api/          FastAPI routers: auth, chat (SSE), admin (fault injection), health
-  graph/        LangGraph state, builder and nodes (guard, supervisor, retrieval, research,
-                tools, response, validator, output guard, memory)
-  llm/          model factory (tiers, timeouts, fallback) and all prompts
-  memory/       checkpointer and rolling summary
-  retrieval/    loaders (MD / DOCX / PDF), BM25, Pinecone store, hybrid search, sync, local fallback
-  rlm/          document catalog and sandbox for generated Python
-  security/     auth (JWT), rate limiting, injection guard, output guard
-  tools/        tool registry with RBAC and audit; built-in, analysis and MCP tools
-mcp_server/     MCP server (Streamable HTTP) with fictional enterprise data
-ui/             Streamlit app
-data/docs/      45 fictional documents (Markdown; 2 as DOCX, 2 as PDF)
-scripts/        index sync, LLM smoke test, graph diagram, sample-format generator
-tests/          299 tests
-docs/           design documents and diagrams
+orysys-ai-assistant/
+├─ app/                         # FastAPI backend
+│  ├─ main.py                   # app factory, routers, error handlers
+│  ├─ config.py                 # settings from .env
+│  ├─ logging.py                # JSON logs + request id
+│  ├─ errors.py · faults.py     # error responses · simulated outages (admin demo)
+│  ├─ tracing.py                # LangSmith spans for tools, MCP and the sandbox
+│  ├─ api/                      # auth.py, chat.py (SSE, threads, trace links), feedback.py, admin.py, health.py
+│  ├─ security/                 # auth.py (users, JWT), rate_limit.py, guards.py (injection), output_guard.py
+│  ├─ llm/                      # factory.py (tiers, timeouts, fallback), prompts.py
+│  ├─ retrieval/                # loaders.py (MD/DOCX/PDF), bm25.py, pinecone_store.py, hybrid.py, sync.py, local_index.py
+│  ├─ graph/
+│  │  ├─ state.py               # typed shared state + run context
+│  │  ├─ builder.py             # wires nodes and edges
+│  │  ├─ citations.py           # citation parsing (validator, response)
+│  │  └─ nodes/                 # guard, supervisor, retrieval, research, tools, response, validator, output_guard, memory
+│  ├─ rlm/                      # catalog.py (clearance-bound document API), sandbox.py
+│  ├─ tools/                    # registry.py (RBAC, audit), builtin.py, analysis.py, mcp_tools.py
+│  └─ memory/                   # checkpointer.py, summary.py
+├─ mcp_server/                  # MCP server + fictional data (employees, services, incidents)
+├─ ui/streamlit_app.py          # chat + agent activity panel
+├─ data/docs/                   # 45 fictional documents, one folder per type
+├─ scripts/                     # ingest.py, smoke_llm.py, draw_graph.py, make_sample_formats.py
+├─ tests/                       # 315 tests
+├─ docs/                        # design docs (Mermaid diagrams), assumptions_and_decisions.md, next_steps.md
+├─ diagrams/                    # diagram images (D1 draw.io, D4, D11)
+├─ .streamlit/config.toml       # UI theme
+└─ requirements.txt · pytest.ini · .env.example · README.md
 ```
 
 ---
