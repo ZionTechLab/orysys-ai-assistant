@@ -85,7 +85,7 @@ graph TD;
 | **Output guard** | rules; fast/strong model only on risk markers | Redacts secrets, removes prompt and clearance leaks, enforces brand rules (rewrite once) | final answer |
 | **Response agent** | strong, streaming | Answers only from evidence, cites `[doc_id#section]`, follows brand rules, treats `<document>` text as data | Final message |
 
-**Why JSON routing instead of tool calling:** the same behaviour across all models behind the gateway, easy to validate, and visible as one clear step in traces. (Decision A8.)
+**Why JSON routing instead of tool calling:** the same behaviour across all models behind the gateway, easy to validate, and visible as one clear step in traces. (Decision A3.)
 
 ## D10 – Shared state and run context
 
@@ -203,7 +203,7 @@ What the brief asks memory to keep, and where it lives:
 
 **Not built (bonus "long-term memory"):** memory across threads, e.g. a per-user store of preferences and frequent topics (LangGraph `Store`). The rolling summary is per conversation.
 
-**Not built (future work): reopening past conversations.** Every conversation is saved per user and survives logout and API restarts, and `GET /threads/{id}` returns it, but the UI has no conversation list – after logging in again the chat starts empty. The brief requires memory within a session, which is met; the list is designed in decision A30.
+**Not built (future work): reopening past conversations.** Every conversation is saved per user and survives logout and API restarts, and `GET /threads/{id}` returns it, but the UI has no conversation list – after logging in again the chat starts empty. The brief requires memory within a session, which is met; the list is designed in decision A9.
 
 ## Streaming to the activity panel
 
@@ -281,7 +281,7 @@ sequenceDiagram
 | 53 s | themes counted in code: **connection pool exhaustion × 3**, **missing circuit breaker × 3**, **expired TLS certificates × 2** |
 | 75 s | answer: overview, the three themes with counts, documents and impact figures, every fact cited |
 
-The planner is the slow step: the gateway's model is a reasoning model that produced ~4,600 tokens for the plan (38–57 s). Long generations therefore use a separate 120 s timeout (decision A17).
+The planner is the slow step: the gateway's model is a reasoning model that produced ~4,600 tokens for the plan (38–57 s). Long generations therefore use a separate 120 s timeout (decision A5).
 
 ## Research agent (RLM) – catalog API
 

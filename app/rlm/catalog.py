@@ -39,7 +39,7 @@ class Corpus:
 
 @lru_cache
 def get_corpus() -> Corpus:
-    """Loaded once per process from the same documents that are indexed (see decision A15)."""
+    """Loaded once per process from the same documents that are indexed (see decision A5)."""
     docs, chunks = load_corpus(get_settings().docs_dir)
     sections: dict[str, dict[str, Chunk]] = {d.doc_id: {} for d in docs}
     for c in chunks:

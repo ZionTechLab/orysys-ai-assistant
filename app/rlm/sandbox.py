@@ -24,7 +24,7 @@ The only way to reach data is the clearance-bound Catalog (app/rlm/catalog.py).
 Limits of this design: it is defence in depth inside the API process, not a hard
 security boundary (the memory check measures the whole process). Production would
 run plans in a separate process or container with OS-level CPU / memory limits
-(see decision A16).
+(see decision A5).
 """
 
 import ast

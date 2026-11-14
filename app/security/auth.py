@@ -29,7 +29,7 @@ class Role(str, Enum):
     ADMIN = "admin"
 
 
-# Document access levels each role may read (see docs/decisions.md and POL-002).
+# Document access levels each role may read (see docs/assumptions_and_decisions.md and POL-002).
 ROLE_CLEARANCE: dict[Role, list[str]] = {
     Role.VIEWER: ["public", "internal"],
     Role.ANALYST: ["public", "internal", "confidential"],

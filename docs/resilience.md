@@ -79,7 +79,7 @@ The check sits at the boundary to the real dependency (`PineconeStore.embed/quer
 | MCP down (analyst: *"Show me the incident tickets for the PayBridge service"*) | tool `error` in 3 ms, then document search; the answer said the ticket list was unavailable and summarised the PayBridge incident reports instead |
 | MCP server not running | `ConnectError` → status `error` after ~2 s, no hang |
 
-Earlier, unplanned: the office network stalled new connections for 30–60 s and the gateway sometimes hung – the retry/timeout design (decision A14) came from those real failures.
+Earlier, unplanned: the office network stalled new connections for 30–60 s and the gateway sometimes hung – the retry/timeout design (decision A3) came from those real failures.
 
 ## Known limits
 

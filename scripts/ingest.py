@@ -5,7 +5,7 @@ Run:
   .venv/Scripts/python scripts/ingest.py --dry-run   # show what would change, change nothing
   .venv/Scripts/python scripts/ingest.py --full      # re-embed every document
 
-See app/retrieval/sync.py and decision A11.
+See app/retrieval/sync.py and decision A2.
 """
 
 import argparse

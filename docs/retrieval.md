@@ -43,8 +43,8 @@ flowchart LR
     grp -->|"hr"| n5[("ns hr")]
 ```
 
-- **Format is only the first step.** Each loader returns the same `ParsedDocument` (metadata + sections); everything after it is shared. Converted samples give the same citation ids as their Markdown originals (kept in `data/samples_src/`). See decision A10.
-- **Sync, not just upsert** (`app/retrieval/sync.py`, decision A11). Each chunk stores a `doc_hash` (text + metadata). A sync compares the documents on disk with Pinecone: new and changed documents are embedded, **deleted documents and removed sections are deleted**, unchanged documents are not re-embedded. Pinecone is the record of what is indexed – no separate manifest. Changing only a document's access level also triggers a re-index.
+- **Format is only the first step.** Each loader returns the same `ParsedDocument` (metadata + sections); everything after it is shared. Converted samples give the same citation ids as their Markdown originals (kept in `data/samples_src/`). See decision A2.
+- **Sync, not just upsert** (`app/retrieval/sync.py`, decision A2). Each chunk stores a `doc_hash` (text + metadata). A sync compares the documents on disk with Pinecone: new and changed documents are embedded, **deleted documents and removed sections are deleted**, unchanged documents are not re-embedded. Pinecone is the record of what is indexed – no separate manifest. Changing only a document's access level also triggers a re-index.
 - **BM25 is re-fitted on every change** (term weights depend on the whole corpus). Unchanged chunks get their sparse values updated in place, without re-embedding; the API reloads the new vocabulary on the next query.
 - **Commands:** `scripts/ingest.py` (sync), `--dry-run` (report only), `--full` (re-embed everything).
 - **Namespaces are upserted in parallel** (`asyncio.gather`).
@@ -125,7 +125,7 @@ A user cannot reach a document above their clearance by naming it: the access cl
 
 ## D16 – Live environment: SharePoint as the document source
 
-Assumption for production (decision A11). The POC folder `data/docs` stands in for the SharePoint library; the sync logic is the same.
+Assumption for production (decision A2). The POC folder `data/docs` stands in for the SharePoint library; the sync logic is the same.
 
 ```mermaid
 flowchart LR

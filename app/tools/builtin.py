@@ -45,7 +45,7 @@ class ReindexArgs(BaseModel):
 
 
 async def admin_reindex(args: ReindexArgs, ctx: ToolContext) -> dict:
-    """Sync the search index with the document library (decision A11) and reload in-memory caches."""
+    """Sync the search index with the document library (decision A2) and reload in-memory caches."""
     from app.retrieval.sync import sync_index
     from app.rlm.catalog import reload_corpus
 

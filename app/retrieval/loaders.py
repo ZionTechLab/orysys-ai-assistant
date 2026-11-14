@@ -1,6 +1,6 @@
 """Format loaders: file -> ParsedDocument (metadata + sections).
 
-This is the only format-specific step of ingestion (decision A10). Chunking,
+This is the only format-specific step of ingestion (decision A2). Chunking,
 embeddings, BM25 and Pinecone work the same for every format.
 
 | Format   | Sections from                         | Metadata from                                  |

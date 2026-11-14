@@ -179,7 +179,7 @@ flowchart TB
 
 **Why two tool checks.** Binding (①) keeps the model from even knowing about tools it may not use – a viewer asking for the audit log gets "not available here", and nothing to hallucinate. Execution (③) is the real control: if a model picks a tool it was not shown – by mistake or because a document told it to – the registry denies it. The approval gate (②) checks permission first, so a human is never asked to approve something the user may not run.
 
-**Where the role comes from.** Only from the verified JWT, passed as run context on each request. Nothing the LLM writes and nothing in a saved checkpoint can change it (decision A12; unit test: a `clearance` value placed in the plan is ignored).
+**Where the role comes from.** Only from the verified JWT, passed as run context on each request. Nothing the LLM writes and nothing in a saved checkpoint can change it (decision A4; unit test: a `clearance` value placed in the plan is ignored).
 
 ## Human-in-the-loop approval
 
@@ -234,7 +234,7 @@ Code: server `mcp_server/` (own process, `python -m mcp_server`, port 8765), cli
 
 ## Data handling (POC assumption)
 
-All documents and enterprise data are fictional, so the POC uses cloud services freely: **Pinecone** stores each chunk's text, and **LangSmith** traces contain questions, prompts, retrieved text and answers. Application logs never contain message content (`docs/logging.md`). With real bank data this is the first thing to change – self-hosted or region-pinned services, ids-only vectors with text fetched from the document system, masking of traced content – see decision A32.
+All documents and enterprise data are fictional, so the POC uses cloud services freely: **Pinecone** stores each chunk's text, and **LangSmith** traces contain questions, prompts, retrieved text and answers. Application logs never contain message content (`docs/logging.md`). With real bank data this is the first thing to change – self-hosted or region-pinned services, ids-only vectors with text fetched from the document system, masking of traced content – see decision A1.
 
 ## Audit log
 
@@ -242,4 +242,4 @@ Every tool attempt – ok, denied, rejected, invalid arguments, timeout, error, 
 
 ## Generated code
 
-The research agent's Python plans run in a sandbox (AST allow-list, safe builtins, line/time budget, output cap) and can only reach data through the clearance-bound catalog. Details and limits: decision A16 and `docs/agents.md`.
+The research agent's Python plans run in a sandbox (AST allow-list, safe builtins, line/time budget, output cap) and can only reach data through the clearance-bound catalog. Details and limits: decision A5 and `docs/agents.md`.

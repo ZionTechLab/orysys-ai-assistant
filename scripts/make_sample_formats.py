@@ -1,6 +1,6 @@
 """Convert a few sample Markdown documents to .docx and .pdf.
 
-Demonstrates that ingestion works the same for Word and PDF files (decision A10).
+Demonstrates that ingestion works the same for Word and PDF files (decision A2).
 The Markdown originals are moved to data/samples_src/ (kept in git, not ingested),
 so each doc_id exists once in data/docs.
 

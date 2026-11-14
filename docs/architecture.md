@@ -189,7 +189,7 @@ flowchart LR
 
 ## D14 – Deployment (Docker Compose)
 
-Designed, not built (bonus item deferred – decision A30). Today the three processes are started separately (README).
+Designed, not built (bonus item deferred – decision A9). Today the three processes are started separately (README).
 
 ```mermaid
 flowchart TB

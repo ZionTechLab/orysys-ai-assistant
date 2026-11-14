@@ -1,4 +1,4 @@
-"""Keep the Pinecone index in sync with the documents folder (decision A11).
+"""Keep the Pinecone index in sync with the documents folder (decision A2).
 
 Upsert alone never removes anything, so a deleted or withdrawn document could
 still be cited. A sync compares the documents on disk with what is in Pinecone:
