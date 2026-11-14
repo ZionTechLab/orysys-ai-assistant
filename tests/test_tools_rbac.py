@@ -183,3 +183,62 @@ async def test_viewer_is_never_asked_to_approve_admin_tool(tool_graph):
     snap = await _run(graph, new_turn_state("please re-index"), VIEWER, thread="t3")
     assert not snap.interrupts and ran == []
     assert snap.values["tool_result"]["status"] == "denied"
+
+
+# ---------- unusable model replies are retried (seen live: truncated JSON from the gateway) ----------
+
+class _Replies:
+    def __init__(self, *replies):
+        self.replies, self.prompts = list(replies), []
+
+    async def ainvoke(self, messages):
+        self.prompts.append(messages)
+        from types import SimpleNamespace
+        return SimpleNamespace(content=self.replies.pop(0))
+
+
+async def test_tool_agent_asks_again_after_a_truncated_reply(monkeypatch):
+    from types import SimpleNamespace
+
+    from langchain_core.messages import HumanMessage
+
+    from app.graph.nodes import tools as tool_nodes
+    from app.graph.state import UserContext
+
+    llm = _Replies('{"tool-index to preview what would change."}',           # truncated – invalid JSON
+                   '{"args": {"dry_run": true}, "reason": "preview"}',         # valid JSON, "tool" missing
+                   '{"tool": "admin_reindex", "args": {"dry_run": true}, "reason": "preview"}')
+    monkeypatch.setattr(tool_nodes, "get_llm", lambda *a, **k: llm)
+    admin = SimpleNamespace(context=UserContext("admin1", "admin", ("public", "internal", "confidential", "restricted")))
+    out = await tool_nodes.tool_agent({"messages": [HumanMessage("Re-index (dry run)")]}, admin)
+    assert out["tool_call"] == {"tool": "admin_reindex", "args": {"dry_run": True}, "reason": "preview"}
+    assert len(llm.prompts) == 3 and "could not be used" in llm.prompts[1][-1].content  # told what was wrong
+
+
+async def test_tool_agent_falls_back_after_three_unusable_replies(monkeypatch):
+    from types import SimpleNamespace
+
+    from langchain_core.messages import HumanMessage
+
+    from app.graph.nodes import tools as tool_nodes
+    from app.graph.state import UserContext
+
+    monkeypatch.setattr(tool_nodes, "get_llm", lambda *a, **k: _Replies("oops", "{broken", '{"reason": "x"}'))
+    admin = SimpleNamespace(context=UserContext("admin1", "admin", ("public",)))
+    out = await tool_nodes.tool_agent({"messages": [HumanMessage("Re-index")]}, admin)
+    assert out["tool_call"]["tool"] is None and out["errors"][0]["node"] == "tool_agent"
+
+
+async def test_supervisor_asks_again_after_an_unusable_reply(monkeypatch):
+    from types import SimpleNamespace
+
+    from langchain_core.messages import HumanMessage
+
+    from app.graph.nodes import supervisor
+    from app.graph.state import UserContext
+
+    llm = _Replies('{"intent": "reindex", "rou', '{"intent": "reindex", "route": "tool"}')
+    monkeypatch.setattr(supervisor, "get_llm", lambda *a, **k: llm)
+    out = await supervisor.supervisor({"messages": [HumanMessage("Re-index the library")]},
+                                      SimpleNamespace(context=UserContext("admin1", "admin", ("public",))))
+    assert out["plan"]["route"] == "tool" and len(llm.prompts) == 2

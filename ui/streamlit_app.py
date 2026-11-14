@@ -206,6 +206,9 @@ def describe(event: str, d: dict) -> str | None:
         skipped = f"  \nNot relevant: {', '.join(d['not_relevant'])}" if d.get("not_relevant") else ""
         failed = f"  \n⚠️ Not analysed: {', '.join(d['failed'])}" if d.get("failed") else ""
         return f"🧩 Themes from {d['analysed']} documents (counted in code):  \n{themes}{skipped}{failed}"
+    if event == "llm_output_invalid":
+        then = "asking the model again" if d.get("retry") else "giving up – fallback"
+        return f"🔁 {d['node']}: model reply unusable ({d.get('error_type')}, attempt {d.get('attempt')}) – {then}"
     if event == "node_error":
         return f"⚠️ {d['node']} failed ({d.get('error_type')}) – continuing with fallback"
     if event == "route_selected":

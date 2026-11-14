@@ -233,6 +233,7 @@ The full log – 32 entries, each with the decision, the reason and the trade-of
 | In-memory rate-limit buckets, audit log and fault switches; SQLite memory (A13, A18, A23) | single instance; production would use Redis and Postgres behind the same interfaces |
 | Input guard and validator fail open, output guard fails closed (A29) | a bug in the output guard hides answers until it is fixed |
 | Bonus items deferred: Docker Compose, reranker, long-term memory (A30) | each is designed and described, not built |
+| Conversations saved per user, but no history list in the UI (A30) | after logging in again the chat starts empty; the saved conversation is reachable only through `GET /threads/{id}` |
 
 ---
 

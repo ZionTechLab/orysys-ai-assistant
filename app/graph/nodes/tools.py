@@ -13,16 +13,19 @@ is not asked again and cannot pick a different tool after the human said yes.
 
 import json
 
+from typing import Any
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
 from langgraph.types import interrupt
+from pydantic import BaseModel
 
+from app.config import get_settings
 from app.graph.events import emit
-from app.graph.nodes.common import node, parse_json
+from app.graph.nodes.common import invoke_json, node
 from app.graph.state import AgentState, UserContext
 from app.llm import prompts
 from app.llm.factory import get_llm
-from app.config import get_settings
 from app.logging import get_logger
 from app.security.guards import sanitize_retrieved
 from app.tools import analysis, builtin, mcp_tools  # noqa: F401 – registers the tools
@@ -30,6 +33,15 @@ from app.tools.registry import REGISTRY, ToolContext
 
 MAX_RESULT_CHARS = 8000
 log = get_logger(__name__)
+
+
+class ToolChoice(BaseModel):
+    """The tool agent's reply. `tool` is required (null / "none" = no tool). Whether the tool exists and
+    whether the role may use it is NOT checked here – the executor does that, and audits the attempt."""
+
+    tool: str | None
+    args: dict[str, Any] = {}
+    reason: str = ""
 
 
 def _ctx(runtime: Runtime[UserContext]) -> ToolContext:
@@ -49,17 +61,14 @@ async def tool_agent(state: AgentState, runtime: Runtime[UserContext]) -> dict:
         return {"tool_call": {"tool": None, "args": {}, "reason": "no tools available for this role"}}
 
     tools_json = json.dumps([t.schema_for_llm() for t in offered], indent=1)
-    reply = await get_llm("strong").ainvoke([
+    choice = await invoke_json(get_llm("strong"), [
         SystemMessage(prompts.TOOL_AGENT.replace("{tools}", tools_json)),
         HumanMessage(state["messages"][-1].content),
-    ])
-    choice = parse_json(reply.content)
-    tool = choice.get("tool")
-    tool = None if tool in (None, "", "none") else str(tool)
-    args = choice.get("args") if isinstance(choice.get("args"), dict) else {}
-    emit("tool_selected", tool=tool, args=args, reason=str(choice.get("reason", ""))[:200],
-         offered=[t.name for t in offered])
-    return {"tool_call": {"tool": tool, "args": args, "reason": str(choice.get("reason", ""))[:200]}}
+    ], ToolChoice, node="tool_agent")
+    tool = None if choice.tool in (None, "", "none") else choice.tool
+    reason = choice.reason[:200]
+    emit("tool_selected", tool=tool, args=choice.args, reason=reason, offered=[t.name for t in offered])
+    return {"tool_call": {"tool": tool, "args": choice.args, "reason": reason}}
 
 
 @node("approval_gate")

@@ -7,7 +7,7 @@ from langgraph.runtime import Runtime
 from pydantic import BaseModel, Field, field_validator
 
 from app.graph.events import emit
-from app.graph.nodes.common import node, parse_json
+from app.graph.nodes.common import invoke_json, node
 from app.graph.state import AgentState, UserContext
 from app.llm import prompts
 from app.llm.factory import get_llm
@@ -68,10 +68,9 @@ async def supervisor(state: AgentState, runtime: Runtime[UserContext]) -> dict:
     if summary:
         context += f"Summary of earlier conversation:\n{summary}\n"
 
-    reply = await get_llm("strong").ainvoke(
-        [SystemMessage(system), HumanMessage(f"{context}\nConversation (latest last):\n{convo}")]
-    )
-    decision = SupervisorDecision.model_validate(parse_json(reply.content))
+    decision = await invoke_json(
+        get_llm("strong"), [SystemMessage(system), HumanMessage(f"{context}\nConversation (latest last):\n{convo}")],
+        SupervisorDecision, node="supervisor")
     if decision.route == "retrieve" and not decision.search_query:
         decision.search_query = state["messages"][-1].content
 
