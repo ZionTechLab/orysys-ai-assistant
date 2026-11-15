@@ -11,6 +11,7 @@ Built for the ORYSYS *AI Lead Technical Assessment*: a multi-agent LangGraph bac
 ## Contents
 
 - [Architecture](#architecture)
+- [Tech stack](#tech-stack)
 - [Quick start](#quick-start)
 - [Try it](#try-it)
 - [Design summary](#design-summary) – agents, retrieval, memory, RLM, security, errors, observability, model choice
@@ -29,6 +30,27 @@ Built for the ORYSYS *AI Lead Technical Assessment*: a multi-agent LangGraph bac
 A question follows the numbered path: **1** sent from the chat → **2** signed-in user and rate limit → **3** input guard → **4** supervisor picks a route → **5** a specialist agent works → **6** the answer is written and checked → **7** it streams back with every step. Colours: blue = agents, red = guards and access control, grey = data stores, purple = services and telemetry, amber = UI and API. The diagram is a draw.io file saved as PNG – open it with draw.io or the VS Code Draw.io extension to edit it.
 
 Detailed diagrams are in [`docs/`](#documentation): system (D1), request lifecycle (D3), agent graph generated from code (D2), RLM (D4), retrieval (D5, D6), security (D7, D8), failure map (D9), state (D10), memory (D11), observability (D12), rate limiting (D13), SharePoint live environment (D16).
+
+---
+
+## Tech stack
+
+| Layer | Technology | Used for |
+|---|---|---|
+| Agents | **LangGraph** 1.2, LangChain Core 1.8 | multi-agent graph – `Send` for parallel workers, `Command` routing, `interrupt()` for human approval |
+| LLM | **9router** gateway (OpenAI-compatible) | virtual model `orysys-fast`: DeepSeek v4.1 Flash, with Gemini as fallback |
+| Search | **Pinecone** 10.3 (serverless) | hybrid index – dense `llama-text-embed-v2` + BM25 (pinecone-text), a namespace per department |
+| Memory | LangGraph SQLite checkpointer | conversations and paused approvals, per user |
+| API | **FastAPI** 0.162, Uvicorn, sse-starlette | async backend, streaming answers and agent events (SSE) |
+| Validation | Pydantic 2.14, pydantic-settings | model output, requests and settings from `.env` |
+| Security | PyJWT, bcrypt, Python `ast` + psutil | login tokens, password hashes, sandbox for generated Python |
+| Tools | **MCP Python SDK** 2.3 (Streamable HTTP), httpx | separate MCP server with live enterprise data |
+| Observability | **LangSmith** 0.14, structlog | one trace per question, answer feedback, JSON logs |
+| UI | **Streamlit** 1.67 | chat and live agent activity panel |
+| Documents | python-frontmatter, python-docx, pypdf | Markdown, Word and PDF loaders |
+| Tests | pytest 9.2, pytest-asyncio, coverage.py | 315 offline tests |
+
+Python 3.12. Full list: [`requirements.txt`](requirements.txt).
 
 ---
 
